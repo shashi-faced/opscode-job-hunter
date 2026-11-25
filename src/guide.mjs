@@ -1,4 +1,5 @@
-// The steps of a search run, given to the agent by jobs_guide.
+// The steps of a search run, given to the agent by jobs_guide, and the browser tasks the app builds.
+import { INBOX_URLS as INBOX_URLS_FOR_TASK } from './messages.mjs';
 
 export const JOB_FORMAT = `{
   "title": "Senior React Developer",
@@ -56,7 +57,7 @@ ${JOB_FORMAT}
  * On job sites the user's click in the app is the confirmation to submit THIS application; on
  * freelance sites a proposal costs paid credits, so the form is filled and the user sends it.
  */
-export function applyTask(job, profile) {
+export function applyTask(job, profile, auto = null) {
   const submit = !!job.draft?.submit;
   const facts = [
     profile?.name && `Name: ${profile.name}`,
@@ -67,7 +68,9 @@ export function applyTask(job, profile) {
   ].filter(Boolean);
   const where = `${job.title}${job.company ? ` at ${job.company}` : ''} on ${job.site}`;
   return [
-    submit
+    submit && auto
+      ? `USER CONFIRMED: the user switched on automatic applications in the app (jobs scoring ${auto.min_score}+ on ${auto.sites.join(', ')}, up to ${auto.daily_cap} a day). This is one of them: "${where}". Submit only this application, with the text below.`
+      : submit
       ? `USER CONFIRMED: the user approved this one application in the app: "${where}". Submit only this application, with the text below.`
       : `The user approved this proposal for "${where}". Fill it in, but do NOT click Send / Submit a proposal: that spends the user's paid credits, so the user sends it.`,
     `Job page: ${job.url}`,
@@ -92,6 +95,41 @@ export function applyTask(job, profile) {
     `${job.draft?.kind === 'proposal' ? 'Proposal' : 'Cover letter'} (paste exactly):`,
     '---',
     job.draft?.text || '',
+    '---',
+  ].join('\n');
+}
+
+/** The Browser Agent's read-only task for one site's inbox (built for the app). */
+export function inboxTask(site, url) {
+  return [
+    `Open ${url} in the browser (the ${site} messages / inbox). If it is not the inbox, open Messages from the site's menu. READ ONLY: do not reply, send, accept, decline, archive or mark anything.`,
+    'If a sign-in, verification or CAPTCHA page appears, hand it to the user (they sign in themselves) and continue when they are done.',
+    'Open each of the 10 most recent conversations (fewer if there are fewer) and return ONLY a JSON array, one object per conversation:',
+    `{
+  "url": "link of the conversation (copy it from the address bar after opening it)",
+  "from": "the other person's name",
+  "company": "their company or client name, if shown",
+  "job_title": "the job or project it is about, if shown",
+  "messages": [ { "from": "name", "mine": false, "text": "the message, word for word", "at": "time as shown" } ]   // the last 6 messages, oldest first; mine: true for the user's own
+}`,
+    'Copy the text as shown. Leave a field "" when it is not shown. Never invent a message.',
+  ].join('\n');
+}
+
+/** The Browser Agent's task to send one reply the user approved with a click (built for the app). */
+export function replyTask(thread) {
+  return [
+    `USER CONFIRMED: the user approved this one reply in the app, to ${thread.from || thread.company} on ${thread.site}. Send only this reply, in this conversation.`,
+    `Conversation: ${thread.url || `the conversation with ${thread.from}${thread.company ? ` (${thread.company})` : ''} in the ${thread.site} inbox: ${INBOX_URLS_FOR_TASK[thread.site] || ''}`}`,
+    '',
+    '1. Open the conversation. If a sign-in, verification or CAPTCHA page appears, hand it to the user and continue when they are done.',
+    '2. Check it is the right conversation (same person, and their last message is there). If not, stop.',
+    '3. Type the reply below EXACTLY, without changing a word, in the message box, then press Send with confirmed: true. Do not attach anything, accept, decline or click anything else.',
+    '4. End your answer with exactly ONE line: RESULT: SENT, or RESULT: NEEDS_YOU <why>, or RESULT: FAILED <why>.',
+    '',
+    'Reply (type exactly):',
+    '---',
+    thread.reply?.text || '',
     '---',
   ].join('\n');
 }

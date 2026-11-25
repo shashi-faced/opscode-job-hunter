@@ -312,3 +312,31 @@ export function jobsDraftState(p, now = Date.now()) {
   saveJobs(jobs);
   return j;
 }
+
+// ───────────────────────── for messages and auto mode (J3) ─────────────────────────
+
+/** What messages.mjs needs from the jobs. */
+export const jobsApi = {
+  load: () => loadJobs(),
+  markReplied(id, note, now = Date.now()) {
+    const jobs = loadJobs();
+    const j = jobs.find((x) => x.id === id);
+    if (!j || !['found', 'shortlisted', 'applied'].includes(j.status)) return;
+    j.history = [...(j.history || []), { at: new Date(now).toISOString(), from: j.status, to: 'replied', note: str(note, 300) }].slice(-20);
+    j.status = 'replied';
+    saveJobs(jobs);
+  },
+};
+
+/** App only: jobs auto mode may write and send an application for (best first). */
+export function autoCandidates(p = {}) {
+  const min = Number(p.min_score) || 80;
+  const sites = [].concat(p.sites || SUBMIT_SITES).filter((s) => SUBMIT_SITES.includes(s));
+  const days = Number(p.days) || 7;
+  const since = Date.now() - days * 86_400_000;
+  return loadJobs()
+    .filter((j) => sites.includes(j.site) && j.url && (j.score ?? 0) >= min && ['found', 'shortlisted'].includes(j.status)
+      && Date.parse(j.foundAt) >= since && !j.draft) // a draft written for the user's review waits for their click
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, Math.min(15, Number(p.limit) || 5));
+}

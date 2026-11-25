@@ -3,9 +3,10 @@ import { FixError } from './store.mjs';
 import {
   STATUSES, SITES, cvRead, profileGet, profileSet, searchAdd, searchList, searchRemove,
   jobsAdd, jobsScore, jobsList, jobsMark, jobsDigest, jobsStatus, getJob,
-  jobsDraft, jobsDrafts, jobsDraftState, DRAFT_STATES, profileGet as profileOf,
+  jobsDraft, jobsDrafts, jobsDraftState, DRAFT_STATES, profileGet as profileOf, jobsApi, autoCandidates,
 } from './records.mjs';
-import { guide, browserTask, applyTask } from './guide.mjs';
+import { guide, browserTask, applyTask, inboxTask, replyTask } from './guide.mjs';
+import { INBOX_URLS, messagesAdd, inbox, getThread, replyDraft, replyState, REPLY_STATES } from './messages.mjs';
 import { LIMITS } from './draft.mjs';
 
 const S = { type: 'string' };
@@ -37,6 +38,8 @@ export const TOOL_DEFS = [
   { name: 'jobs_digest', description: 'The new matches of the last hours (default 24), best first.', parameters: { type: 'object', properties: { hours: { type: 'number' }, min_score: { type: 'number', description: 'default 60' }, limit: { type: 'number' } }, required: [] } },
   { name: 'jobs_draft', description: `Keep a cover letter (job sites) or proposal (freelance sites) for one job. It is checked: ${LIMITS.cover_letter.min}-${LIMITS.cover_letter.max} words for a cover letter, ${LIMITS.proposal.min}-${LIMITS.proposal.max} for a proposal; no skill or years the profile does not have; no placeholders; no contact details in proposals. It then waits for the user's OK in the Jobs tab: you cannot send it.`, parameters: { type: 'object', properties: { job: { type: 'string', description: 'job id' }, text: { type: 'string', description: 'the full text, ready to send' }, kind: { type: 'string', enum: ['cover_letter', 'proposal'], description: 'default: proposal for freelance, cover letter for jobs' } }, required: ['job', 'text'] } },
   { name: 'jobs_drafts', description: 'Applications waiting for the user (or by state), with their text and what happened.', parameters: { type: 'object', properties: { state: { type: 'string', enum: DRAFT_STATES } }, required: [] } },
+  { name: 'jobs_inbox', description: 'Conversations with recruiters and clients that need a reply (or all), with their last messages and the job they are about.', parameters: { type: 'object', properties: { all: { type: 'boolean' } }, required: [] } },
+  { name: 'jobs_reply_draft', description: 'Keep a reply to one conversation. It waits for the user\'s Send in the Jobs tab: you cannot send it. Never accept, agree or commit for the user (rates, salary, start dates, contracts, interviews times are the user\'s to confirm); answer from the profile only. No contact details on Upwork or Freelancer.', parameters: { type: 'object', properties: { thread: { type: 'string', description: 'conversation id from jobs_inbox' }, text: { type: 'string', description: 'the reply, ready to send' } }, required: ['thread', 'text'] } },
   { name: 'jobs_status', description: 'Overview: profile, saved searches with their last run, counts per status, warnings.', parameters: { type: 'object', properties: {}, required: [] } },
 ];
 
@@ -46,7 +49,8 @@ const line = (j, i) => `${i != null ? `${i + 1}. ` : ''}[${j.score ?? '–'}] ${
 const draftLine = (j) => `- ${j.title}${j.company ? ` — ${j.company}` : ''} (${j.site}, id ${j.id}): ${j.draft.kind.replace('_', ' ')}, ${j.draft.words} words, ${j.draft.state.replace('_', ' ')}${j.draft.note ? ` — ${j.draft.note}` : ''}`;
 
 /** Tools only the app calls (not in TOOL_DEFS, so the agent never has them): the user's decision and the browser's result. */
-export const APP_TOOLS = ['jobs_draft_state', 'jobs_apply_task'];
+export const APP_TOOLS = ['jobs_draft_state', 'jobs_apply_task', 'jobs_inbox_task', 'jobs_messages_add', 'jobs_reply_state', 'jobs_reply_task', 'jobs_auto_candidates'];
+const threadLine = (t) => `- ${t.from || t.company}${t.company && t.from ? ` (${t.company})` : ''} on ${t.site}, id ${t.id}${t.job ? `, job ${t.job}` : ''}${t.sensitive ? ' ⚠ money or commitment' : ''}: "${(t.messages.filter((m) => !m.mine).at(-1)?.text || '').slice(0, 200)}"${t.reply?.state && t.reply.state !== 'none' ? ` — reply ${t.reply.state.replace('_', ' ')}` : ''}`;
 
 const RUN = {
   jobs_guide: () => ({ text: guide() }),
@@ -87,8 +91,28 @@ const RUN = {
     const j = getJob(p.job);
     if (!j.draft?.text) throw new FixError('the job has no draft', 'write one with jobs_draft first');
     if (!j.url) throw new FixError('the job has no link', 'add the job again with its link');
-    return { text: applyTask(j, profileOf()), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company } };
+    const auto = p.auto && typeof p.auto === 'object' ? { min_score: Number(p.auto.min_score), sites: [].concat(p.auto.sites || []), daily_cap: Number(p.auto.daily_cap) } : null;
+    return { text: applyTask(j, profileOf(), auto), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company } };
   },
+  jobs_inbox: (p) => { const l = inbox(p); return { text: l.length ? l.map(threadLine).join('\n') : 'No conversations need a reply.', data: l }; },
+  jobs_reply_draft: (p) => {
+    const r = replyDraft(p);
+    if (!r.ok) return { ok: false, text: [`Not kept: ${r.check.errors.length} problem(s):`, ...r.check.errors.map((e) => `- ${e.error}. Fix: ${e.fix}`)].join('\n'), data: { errors: r.check.errors } };
+    return { text: `Kept the reply to ${r.thread.from || r.thread.company}.${r.check.sensitive ? ' It is about money or a commitment: the user reads it before sending.' : ''} It waits for the user's Send in the Jobs tab.`, data: { thread: r.thread.id, reply: r.thread.reply } };
+  },
+  jobs_inbox_task: (p) => {
+    const site = String(p.site || '');
+    if (!INBOX_URLS[site]) throw new FixError(`no inbox for "${site}"`, `use one of: ${Object.keys(INBOX_URLS).join(', ')}`);
+    return { text: inboxTask(site, INBOX_URLS[site]), data: { site, url: INBOX_URLS[site] } };
+  },
+  jobs_messages_add: (p) => { const r = messagesAdd(p, jobsApi); return { text: `${r.fresh.length} conversation(s) with new messages.`, data: { fresh: r.fresh.map((t) => ({ id: t.id, from: t.from, company: t.company, site: t.site, job: t.job, sensitive: !!t.sensitive })), total: r.total } }; },
+  jobs_reply_state: (p) => { const t = replyState(p); return { text: `Reply to ${t.from || t.company}: ${t.reply.state.replace('_', ' ')}.`, data: t }; },
+  jobs_reply_task: (p) => {
+    const t = getThread(p.thread);
+    if (!t.reply?.text) throw new FixError('the conversation has no reply', 'write one with jobs_reply_draft first');
+    return { text: replyTask(t), data: { thread: t.id, site: t.site, from: t.from, company: t.company, sensitive: !!t.reply.sensitive } };
+  },
+  jobs_auto_candidates: (p) => { const l = autoCandidates(p); return { text: l.map((j) => `${j.score} ${j.title} (${j.id})`).join('\n') || 'None.', data: l }; },
   jobs_status: () => {
     const r = jobsStatus();
     const t = [
