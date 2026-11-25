@@ -1,0 +1,91 @@
+// Tools the Opscode app calls: `opscode-jobs tool <name> --b64 <params>` → { ok, text, data }.
+import { FixError } from './store.mjs';
+import {
+  STATUSES, SITES, cvRead, profileGet, profileSet, searchAdd, searchList, searchRemove,
+  jobsAdd, jobsScore, jobsList, jobsMark, jobsDigest, jobsStatus, getJob,
+} from './records.mjs';
+import { guide, browserTask } from './guide.mjs';
+
+const S = { type: 'string' };
+const A = { type: 'array', items: S };
+const siteEnum = { type: 'string', enum: Object.keys(SITES) };
+const jobParam = { job: { description: 'job id (from jobs_list / jobs_digest), or a list of ids' } };
+
+export const TOOL_DEFS = [
+  { name: 'jobs_guide', description: 'How a search run works, step by step, and the job format the browser returns. Call once per chat before the first search.', parameters: { type: 'object', properties: {}, required: [] } },
+  { name: 'jobs_cv_read', description: 'Read the text of the user\'s CV (.pdf, .docx, .txt, .md) to build the profile.', parameters: { type: 'object', properties: { path: { type: 'string', description: 'CV file path, e.g. ~/Documents/cv.pdf' } }, required: ['path'] } },
+  { name: 'jobs_profile_set', description: 'Save the profile the user confirmed (only the fields given change). Every job is scored again after a change.', parameters: { type: 'object', properties: {
+    name: S, headline: { type: 'string', description: 'one line, e.g. "Full-stack developer, 4 years, React + Node"' },
+    skills: { ...A, description: 'the 6-15 main skills from the CV' }, years: { type: 'number', description: 'years of experience' },
+    roles: { ...A, description: 'roles wanted, e.g. ["frontend developer", "react developer"]' },
+    locations: { ...A, description: 'cities wanted, e.g. ["bengaluru", "pune"]' }, remote: { type: 'boolean', description: 'remote jobs are fine' },
+    min_salary_lpa: { type: 'number', description: 'lowest yearly pay for jobs, in lakhs' }, rate_hourly: { type: 'number', description: 'lowest hourly rate for freelance, in $' },
+    avoid: { ...A, description: 'words that rule a job out, e.g. ["php", "night shift", "unpaid"]' },
+    cv_path: S, notes: { type: 'string', description: 'anything else the user wants or does not want' },
+  }, required: [] } },
+  { name: 'jobs_profile_get', description: 'The saved profile.', parameters: { type: 'object', properties: {}, required: [] } },
+  { name: 'jobs_search_add', description: 'Save a search: a site and what to look for. The results link is built for known sites.', parameters: { type: 'object', properties: { site: siteEnum, query: { type: 'string', description: 'what to search, e.g. "react developer"' }, location: { type: 'string', description: 'city, or "remote" (job sites only)' }, kind: { type: 'string', enum: ['job', 'freelance'] }, url: { type: 'string', description: 'results page link; needed for site "other"' } }, required: ['site'] } },
+  { name: 'jobs_search_list', description: 'Saved searches, each with the exact task to hand the Browser Agent (browser_task).', parameters: { type: 'object', properties: {}, required: [] } },
+  { name: 'jobs_search_remove', description: 'Remove a saved search.', parameters: { type: 'object', properties: { search: { type: 'string', description: 'search id' } }, required: ['search'] } },
+  { name: 'jobs_add', description: 'Save the jobs the browser read from a results or job page. Repeats are skipped; a longer description updates the job.', parameters: { type: 'object', properties: { site: siteEnum, search: { type: 'string', description: 'saved search id this came from' }, jobs: { type: 'array', items: { type: 'object' }, description: 'jobs in the format from jobs_guide' } }, required: ['site', 'jobs'] } },
+  { name: 'jobs_score', description: 'Score jobs 0-100 against the profile, with the reasons (new ones, or all with rescore).', parameters: { type: 'object', properties: { rescore: { type: 'boolean' } }, required: [] } },
+  { name: 'jobs_list', description: 'Jobs, best match first (dismissed and lost left out unless status or all is given).', parameters: { type: 'object', properties: { status: { type: 'string', enum: STATUSES }, min_score: { type: 'number' }, site: siteEnum, kind: { type: 'string', enum: ['job', 'freelance'] }, all: { type: 'boolean' }, limit: { type: 'number' } }, required: [] } },
+  { name: 'jobs_get', description: 'One job with its full text, score, reasons and history.', parameters: { type: 'object', properties: { job: S }, required: ['job'] } },
+  { name: 'jobs_mark', description: `Record where a job stands, as the user said: ${STATUSES.join(', ')}.`, parameters: { type: 'object', properties: { ...jobParam, status: { type: 'string', enum: STATUSES }, note: S }, required: ['job', 'status'] } },
+  { name: 'jobs_digest', description: 'The new matches of the last hours (default 24), best first.', parameters: { type: 'object', properties: { hours: { type: 'number' }, min_score: { type: 'number', description: 'default 60' }, limit: { type: 'number' } }, required: [] } },
+  { name: 'jobs_status', description: 'Overview: profile, saved searches with their last run, counts per status, warnings.', parameters: { type: 'object', properties: {}, required: [] } },
+];
+
+const where = (j) => [j.company, j.location, j.salary].filter(Boolean).join(' · ');
+const line = (j, i) => `${i != null ? `${i + 1}. ` : ''}[${j.score ?? '–'}] ${j.title}${where(j) ? ` — ${where(j)}` : ''} (${j.site}, ${j.status}, id ${j.id})${j.reasons ? `\n   ${j.reasons}` : ''}${j.url ? `\n   ${j.url}` : ''}`;
+
+const RUN = {
+  jobs_guide: () => ({ text: guide() }),
+  jobs_cv_read: (p, ctx) => { const r = cvRead(p, ctx.cwd); return { text: `CV ${r.file} (${r.chars} characters):\n\n${r.text}`, data: { file: r.file, chars: r.chars } }; },
+  jobs_profile_set: (p) => { const r = profileSet(p); return { text: `Saved the profile: ${r.headline || r.name || ''} — ${r.skills.length} skills${r.years != null ? `, ${r.years} yrs` : ''}${r.locations?.length ? `, ${r.locations.join('/')}` : ''}${r.remote ? ', remote ok' : ''}. Jobs are scored again on the next jobs_score.`, data: r }; },
+  jobs_profile_get: () => { const r = profileGet(); return { text: r ? JSON.stringify(r, null, 2) : 'No profile yet. Read the CV with jobs_cv_read.', data: r }; },
+  jobs_search_add: (p) => { const r = searchAdd(p); return { text: `${r.existed ? 'Updated' : 'Saved'} search ${r.search.id}: ${SITES[r.search.site].name} ${r.search.kind}, "${r.search.query}"${r.search.location ? ` in ${r.search.location}` : ''}\n${r.search.url}`, data: r.search }; },
+  jobs_search_list: () => {
+    const l = searchList().map((s) => ({ ...s, browser_task: browserTask(s) }));
+    return { text: l.length ? l.map((s) => `- ${s.id}: ${SITES[s.site].name}, "${s.query}"${s.location ? ` in ${s.location}` : ''} (last run ${s.lastRunAt || 'never'})`).join('\n') + '\nEach has browser_task in data: hand it to the Browser Agent word for word.' : 'No saved searches yet. Add one with jobs_search_add.', data: l };
+  },
+  jobs_search_remove: (p) => { const r = searchRemove(p); return { text: `Removed search ${r.removed}.`, data: r }; },
+  jobs_add: (p) => {
+    const r = jobsAdd(p);
+    const t = [`Added ${r.added.length} new job(s), updated ${r.updated.length}, skipped ${r.repeats.length} already known.`];
+    if (r.invalid.length) t.push(`Skipped ${r.invalid.length} without a title or a link/company.`);
+    if (r.added.length || r.updated.length) t.push('Next: jobs_score.');
+    return { text: t.join(' '), data: r };
+  },
+  jobs_score: (p) => { const r = jobsScore(p); const top = [...r.jobs].filter((j) => j.status === 'found').sort((a, b) => (b.score ?? 0) - (a.score ?? 0)).slice(0, 3); return { text: `Scored ${r.scored} job(s).${top.length ? ` Best now: ${top.map((j) => `${j.score} ${j.title}`).join('; ')}.` : ''} Show them with jobs_digest.`, data: { scored: r.scored } }; },
+  jobs_list: (p) => { const l = jobsList(p); return { text: l.length ? l.map((j, i) => line(j, i)).join('\n') : 'No jobs match.', data: l }; },
+  jobs_get: (p) => { const j = getJob(p.job); return { text: `${line(j)}\nFound ${j.foundAt}${j.posted ? `, posted ${j.posted}` : ''}${j.experience ? `, ${j.experience}` : ''}\n\n${j.description || '(no description yet: open the link with the browser, read only, and jobs_add it again)'}`, data: j }; },
+  jobs_mark: (p) => { const l = jobsMark(p); return { text: l.map((j) => `${j.title} (${j.id}) is now ${j.status}.`).join('\n'), data: l }; },
+  jobs_digest: (p) => {
+    const r = jobsDigest(p);
+    const head = `${r.found} job(s) found in the last ${r.hours} h; ${r.matches.length + r.more} match ${r.min_score}+${r.unscored ? ` (${r.unscored} not scored yet: call jobs_score)` : ''}.`;
+    return { text: r.matches.length ? `${head}\n${r.matches.map((j, i) => line(j, i)).join('\n')}${r.more ? `\n…and ${r.more} more (jobs_list)` : ''}` : head, data: r };
+  },
+  jobs_status: () => {
+    const r = jobsStatus();
+    const t = [
+      r.profile ? `Profile: ${r.profile.headline || r.profile.name || 'saved'} (${r.profile.skills} skills)` : 'Profile: none',
+      `Searches: ${r.searches.length ? r.searches.map((s) => `${s.site} "${s.query}" (last ${s.lastRunAt || 'never'})`).join('; ') : 'none'}`,
+      `Jobs: ${r.total} — ${Object.entries(r.counts).filter(([, n]) => n).map(([s, n]) => `${s} ${n}`).join(', ') || 'none'}; strong matches waiting: ${r.strong}`,
+      ...r.warnings.map((w) => `⚠ ${w}`),
+    ];
+    return { text: t.join('\n'), data: r };
+  },
+};
+
+export async function runTool(name, params = {}, ctx = {}) {
+  const fn = RUN[name];
+  if (!fn) return { ok: false, text: `Unknown tool "${name}". Tools: ${Object.keys(RUN).join(', ')}` };
+  try {
+    const r = await fn(params || {}, { cwd: ctx.cwd || process.cwd() });
+    return { ok: r.ok ?? true, text: r.text, data: r.data };
+  } catch (e) {
+    if (!(e instanceof FixError) && !e.fix) return { ok: false, text: `${e.message}.`, data: { error: e.message } };
+    return { ok: false, text: `${e.message}. Fix: ${e.fix}`, data: { error: e.message, fix: e.fix, details: e.details } };
+  }
+}

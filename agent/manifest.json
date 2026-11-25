@@ -1,0 +1,190 @@
+{
+  "id": "job-hunter",
+  "name": "Job & Freelance Finder",
+  "icon": "🎯",
+  "version": "0.1.0",
+  "category": "chat",
+  "description": "Give your CV: it searches Naukri, LinkedIn, Indeed, Upwork and Freelancer in your own browser, scores every job against your skills, and shows the best matches with the reasons.",
+  "longDescription": "Share your CV and say what you want (roles, cities or remote, pay). Job & Freelance Finder:\n\n1. **Builds your profile** from the CV: skills, years, roles, places, pay. You confirm it; it never adds anything you do not have\n2. **Saves your searches** on Naukri, LinkedIn, Indeed, Upwork and Freelancer\n3. **Reads the results** with the Browser Agent in your own signed-in browser (read only)\n4. **Scores every job 0-100** against your profile and says why: skills that match, role, place, pay, experience asked, words you avoid\n5. **Keeps track**: each job once, shortlisted, dismissed, applied, interview, offer, won\n\n### Coming next\nTailored cover letters and proposals, one-click apply, scheduled searches, replies to clients, and a notification when you win a job.\n\n### Needs\n- **Browser Agent** (built in)\n- Your accounts on the job sites, signed in in the browser when it asks",
+  "tags": [
+    "jobs",
+    "freelance",
+    "naukri",
+    "upwork",
+    "linkedin",
+    "resume",
+    "cv",
+    "career"
+  ],
+  "author": "Opscode",
+  "downloadSize": "0.1 MB",
+  "uses": [
+    "browser"
+  ],
+  "inputPlaceholder": "Your CV path and what you want: e.g. ~/Documents/cv.pdf, React jobs in Bengaluru + freelance React gigs",
+  "samplePrompts": [
+    "🎯 My CV is ~/Documents/cv.pdf. React / Node jobs in Bengaluru or remote, 15 LPA+",
+    "🧑‍💻 Find Upwork gigs for React and Next.js, $25/hr or more",
+    "📋 Show today's best matches",
+    "✅ I applied to #2 and #5"
+  ],
+  "allowedTools": [
+    "jobs_guide",
+    "jobs_cv_read",
+    "jobs_profile_set",
+    "jobs_profile_get",
+    "jobs_search_add",
+    "jobs_search_list",
+    "jobs_search_remove",
+    "jobs_add",
+    "jobs_score",
+    "jobs_list",
+    "jobs_get",
+    "jobs_mark",
+    "jobs_digest",
+    "jobs_status",
+    "read_file",
+    "list_directory",
+    "ask_question",
+    "todo_update",
+    "web_search",
+    "web_fetch",
+    "delegate_to_agent"
+  ],
+  "setup": {
+    "title": "Set up your job search",
+    "subtitle": "Pick what you are looking for, then give your CV below. Nothing is sent to any employer or client: it finds and scores jobs for you.",
+    "label": "Job & Freelance Finder settings",
+    "promptHint": "Now give the path of your CV (PDF, Word or text) and anything else: roles, cities, pay, what to avoid.",
+    "steps": [
+      "You share your CV and what you want",
+      "You confirm your profile and saved searches",
+      "It reads the job sites in your own browser",
+      "It scores every job and shows the best matches with the reasons"
+    ],
+    "fields": [
+      {
+        "id": "looking",
+        "label": "Looking for",
+        "layout": "cards",
+        "size": "full",
+        "default": [
+          "both"
+        ],
+        "options": [
+          {
+            "value": "job",
+            "label": "A job",
+            "icon": "💼",
+            "hint": "Naukri, LinkedIn, Indeed",
+            "prompt": "looking for a full-time job"
+          },
+          {
+            "value": "freelance",
+            "label": "Freelance work",
+            "icon": "🧑‍💻",
+            "hint": "Upwork, Freelancer",
+            "prompt": "looking for freelance gigs"
+          },
+          {
+            "value": "both",
+            "label": "Both",
+            "icon": "🎯",
+            "hint": "jobs and gigs",
+            "prompt": "looking for both a job and freelance gigs"
+          }
+        ]
+      },
+      {
+        "id": "sites",
+        "label": "Sites",
+        "layout": "chips",
+        "multi": true,
+        "default": [
+          "naukri",
+          "upwork"
+        ],
+        "options": [
+          {
+            "value": "naukri",
+            "label": "Naukri",
+            "prompt": "site naukri"
+          },
+          {
+            "value": "linkedin",
+            "label": "LinkedIn",
+            "prompt": "site linkedin"
+          },
+          {
+            "value": "indeed",
+            "label": "Indeed",
+            "prompt": "site indeed"
+          },
+          {
+            "value": "upwork",
+            "label": "Upwork",
+            "prompt": "site upwork"
+          },
+          {
+            "value": "freelancer",
+            "label": "Freelancer",
+            "prompt": "site freelancer"
+          }
+        ]
+      },
+      {
+        "id": "where",
+        "label": "Where",
+        "layout": "chips",
+        "size": "half",
+        "default": [
+          "any"
+        ],
+        "options": [
+          {
+            "value": "remote",
+            "label": "Remote only",
+            "prompt": "remote jobs only"
+          },
+          {
+            "value": "city",
+            "label": "My city",
+            "prompt": "jobs in my city (from the CV, or ask)"
+          },
+          {
+            "value": "any",
+            "label": "Remote or my city",
+            "prompt": "remote or in my city"
+          }
+        ]
+      },
+      {
+        "id": "min",
+        "label": "Show matches from",
+        "layout": "chips",
+        "size": "half",
+        "default": [
+          "60"
+        ],
+        "options": [
+          {
+            "value": "50",
+            "label": "50%",
+            "prompt": "show matches scoring 50+"
+          },
+          {
+            "value": "60",
+            "label": "60%",
+            "prompt": "show matches scoring 60+"
+          },
+          {
+            "value": "70",
+            "label": "70%",
+            "prompt": "show matches scoring 70+"
+          }
+        ]
+      }
+    ]
+  },
+  "systemPrompt": "You are Job & Freelance Finder. You find jobs and freelance gigs that fit the user's CV, score each one, explain why, and keep track of them. In this version you never apply, send proposals, messages or e-mails: you read job sites and report. If asked to apply or message, say that comes in the next version, give the job link so the user can do it, and offer to record it with jobs_mark \"applied\".\n\n## When the chat starts\n- [Job & Freelance Finder settings] in the message carries the user's choices from the setup panel (what they look for, sites, where, minimum match).\n- Call jobs_status first. If there is no profile: ask for the CV file path (ask_question) unless the message has it, read it with jobs_cv_read, and propose the profile in one short block: headline, skills (6-15), years, roles, locations and remote, minimum salary (LPA) and hourly rate ($), words to avoid. Ask \"Save this profile?\" with ask_question and save it with jobs_profile_set only after a yes or their changes.\n- Use ONLY what the CV or the user says. Never add a skill, a year of experience, a degree or an employer.\n- If there are no saved searches, suggest 1-3 per chosen site from the roles and top skills (e.g. naukri \"react developer\" in bengaluru; upwork \"react\"), confirm, and save them with jobs_search_add.\n- Then offer to run the searches now.\n\n## A search run\nCall jobs_guide once per chat first. For each saved search, one at a time: delegate_to_agent to \"browser\" with the search's browser_task from jobs_search_list WORD FOR WORD (it is read only); take the JSON array from the answer; jobs_add {site, search, jobs}. Never invent a job, a link or a company. After all searches: jobs_score, then jobs_digest.\n\n## Showing jobs\nNumbered list, best first: score, title, company, place, pay, why it fits and what does not (the reasons), and the link. Ask which to shortlist or dismiss and record it with jobs_mark. When the user says they applied, heard back, have an interview, an offer, or won or lost a gig, record it with jobs_mark and a short note.\n\n## Sites\nThe browser uses the user's own signed-in session. Sign-in, verification and CAPTCHA pages are handed to the user; never type passwords. Keep it to the saved searches (a few pages a run): job sites limit automated use.\n\nBe brief. Plain words."
+}
