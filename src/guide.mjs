@@ -11,7 +11,8 @@ export const JOB_FORMAT = `{
   "url": "https://www.naukri.com/job-listings-...",   // the job's own page, full link
   "description": "Short text shown with the job (up to 500 characters)",
   "remote": false,
-  "skills": ["React", "Redux", "TypeScript"]          // the tags shown, if any
+  "skills": ["React", "Redux", "TypeScript"],         // the tags shown, if any
+  "apply_email": ""                                     // only if the post says to send the CV to an e-mail address
 }`;
 
 export function browserTask(search) {

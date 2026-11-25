@@ -3,7 +3,7 @@ import { FixError } from './store.mjs';
 import {
   STATUSES, SITES, cvRead, profileGet, profileSet, searchAdd, searchList, searchRemove,
   jobsAdd, jobsScore, jobsList, jobsMark, jobsDigest, jobsStatus, getJob,
-  jobsDraft, jobsDrafts, jobsDraftState, DRAFT_STATES, profileGet as profileOf, jobsApi, autoCandidates,
+  jobsDraft, jobsDrafts, jobsDraftState, DRAFT_STATES, profileGet as profileOf, jobsApi, autoCandidates, pipeline, wonJobs,
 } from './records.mjs';
 import { guide, browserTask, applyTask, inboxTask, replyTask } from './guide.mjs';
 import { INBOX_URLS, messagesAdd, inbox, getThread, replyDraft, replyState, REPLY_STATES } from './messages.mjs';
@@ -49,8 +49,8 @@ const line = (j, i) => `${i != null ? `${i + 1}. ` : ''}[${j.score ?? '–'}] ${
 const draftLine = (j) => `- ${j.title}${j.company ? ` — ${j.company}` : ''} (${j.site}, id ${j.id}): ${j.draft.kind.replace('_', ' ')}, ${j.draft.words} words, ${j.draft.state.replace('_', ' ')}${j.draft.note ? ` — ${j.draft.note}` : ''}`;
 
 /** Tools only the app calls (not in TOOL_DEFS, so the agent never has them): the user's decision and the browser's result. */
-export const APP_TOOLS = ['jobs_draft_state', 'jobs_apply_task', 'jobs_inbox_task', 'jobs_messages_add', 'jobs_reply_state', 'jobs_reply_task', 'jobs_auto_candidates'];
-const threadLine = (t) => `- ${t.from || t.company}${t.company && t.from ? ` (${t.company})` : ''} on ${t.site}, id ${t.id}${t.job ? `, job ${t.job}` : ''}${t.sensitive ? ' ⚠ money or commitment' : ''}: "${(t.messages.filter((m) => !m.mine).at(-1)?.text || '').slice(0, 200)}"${t.reply?.state && t.reply.state !== 'none' ? ` — reply ${t.reply.state.replace('_', ' ')}` : ''}`;
+export const APP_TOOLS = ['jobs_draft_state', 'jobs_apply_task', 'jobs_inbox_task', 'jobs_messages_add', 'jobs_reply_state', 'jobs_reply_task', 'jobs_auto_candidates', 'jobs_pipeline', 'jobs_won'];
+const threadLine = (t) => `- ${t.from || t.company}${t.company && t.from ? ` (${t.company})` : ''} on ${t.site}, id ${t.id}${t.job ? `, job ${t.job}` : ''}${t.signal ? ` [${t.signal}]` : ''}${t.sensitive ? ' ⚠ money or commitment' : ''}: "${(t.messages.filter((m) => !m.mine).at(-1)?.text || '').slice(0, 200)}"${t.reply?.state && t.reply.state !== 'none' ? ` — reply ${t.reply.state.replace('_', ' ')}` : ''}`;
 
 const RUN = {
   jobs_guide: () => ({ text: guide() }),
@@ -90,9 +90,12 @@ const RUN = {
   jobs_apply_task: (p) => {
     const j = getJob(p.job);
     if (!j.draft?.text) throw new FixError('the job has no draft', 'write one with jobs_draft first');
-    if (!j.url) throw new FixError('the job has no link', 'add the job again with its link');
+    if (!j.url && !j.apply_email) throw new FixError('the job has no link', 'add the job again with its link');
     const auto = p.auto && typeof p.auto === 'object' ? { min_score: Number(p.auto.min_score), sites: [].concat(p.auto.sites || []), daily_cap: Number(p.auto.daily_cap) } : null;
-    return { text: applyTask(j, profileOf(), auto), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company } };
+    const prof = profileOf() || {};
+    // Applying by e-mail: the app sends it through the user's Gmail (no browser).
+    const email = j.apply_email ? { to: j.apply_email, subject: `Application: ${j.title}${prof.name ? ` — ${prof.name}` : ''}`, body: j.draft.text, attachment: prof.cv_path || null } : null;
+    return { text: applyTask(j, prof, auto), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company, email } };
   },
   jobs_inbox: (p) => { const l = inbox(p); return { text: l.length ? l.map(threadLine).join('\n') : 'No conversations need a reply.', data: l }; },
   jobs_reply_draft: (p) => {
@@ -105,14 +108,18 @@ const RUN = {
     if (!INBOX_URLS[site]) throw new FixError(`no inbox for "${site}"`, `use one of: ${Object.keys(INBOX_URLS).join(', ')}`);
     return { text: inboxTask(site, INBOX_URLS[site]), data: { site, url: INBOX_URLS[site] } };
   },
-  jobs_messages_add: (p) => { const r = messagesAdd(p, jobsApi); return { text: `${r.fresh.length} conversation(s) with new messages.`, data: { fresh: r.fresh.map((t) => ({ id: t.id, from: t.from, company: t.company, site: t.site, job: t.job, sensitive: !!t.sensitive })), total: r.total } }; },
+  jobs_messages_add: (p) => { const r = messagesAdd(p, jobsApi); return { text: `${r.fresh.length} conversation(s) with new messages.`, data: { fresh: r.fresh.map((t) => ({ id: t.id, from: t.from, company: t.company, site: t.site, job: t.job, sensitive: !!t.sensitive, signal: t.signal || null })), total: r.total } }; },
   jobs_reply_state: (p) => { const t = replyState(p); return { text: `Reply to ${t.from || t.company}: ${t.reply.state.replace('_', ' ')}.`, data: t }; },
   jobs_reply_task: (p) => {
     const t = getThread(p.thread);
     if (!t.reply?.text) throw new FixError('the conversation has no reply', 'write one with jobs_reply_draft first');
-    return { text: replyTask(t), data: { thread: t.id, site: t.site, from: t.from, company: t.company, sensitive: !!t.reply.sensitive } };
+    const email = t.site === 'email' ? { to: t.email, subject: /^re:/i.test(t.subject || '') ? t.subject : `Re: ${t.subject || t.job_title || ''}`.trim(), body: t.reply.text, thread_id: t.gmail_thread || null, in_reply_to: t.message_id || null } : null;
+    if (t.site === 'email' && !t.email) throw new FixError('the e-mail has no sender address', 'reply from Gmail yourself');
+    return { text: t.site === 'email' ? '' : replyTask(t), data: { thread: t.id, site: t.site, from: t.from, company: t.company, sensitive: !!t.reply.sensitive, email } };
   },
   jobs_auto_candidates: (p) => { const l = autoCandidates(p); return { text: l.map((j) => `${j.score} ${j.title} (${j.id})`).join('\n') || 'None.', data: l }; },
+  jobs_pipeline: (p) => { const r = pipeline(p); return { text: `${r.total} jobs: ${Object.entries(r.counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ')}`, data: r }; },
+  jobs_won: () => { const l = wonJobs(); return { text: l.map((j) => `${j.title} — ${j.company}`).join('\n') || 'None yet.', data: l }; },
   jobs_status: () => {
     const r = jobsStatus();
     const t = [

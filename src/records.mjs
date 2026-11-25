@@ -151,6 +151,8 @@ export function jobsAdd(p, now = Date.now()) {
       title, company, url,
       location: str(raw.location, 200), salary: str(raw.salary || raw.budget, 200), experience: str(raw.experience, 100),
       posted: str(raw.posted, 100), description: str(raw.description, MAX_DESC), remote: raw.remote === true || raw.remote === 'true',
+      // "Send your CV to hr@acme.com": applying by e-mail instead of the site's form (only a plain address is kept).
+      apply_email: /^[\w.+-]+@[\w-]+(\.[\w-]+)+$/.test(String(raw.apply_email || '').trim()) ? String(raw.apply_email).trim().toLowerCase() : undefined,
       skills: raw.skills ? list(raw.skills).slice(0, 30) : undefined,
     };
     const prev = (url && byUrl.get(url)) || byKey.get(sameJobKey(job));
@@ -275,7 +277,7 @@ export function jobsDraft(p, now = Date.now()) {
   j.draft = {
     kind, text: String(p.text).trim(), words: c.words, warnings: c.warnings.map((w) => w.warning),
     state: 'waiting', byUser, createdAt: j.draft?.createdAt || new Date(now).toISOString(), updatedAt: new Date(now).toISOString(),
-    note: '', submit: SUBMIT_SITES.includes(j.site),
+    note: '', submit: SUBMIT_SITES.includes(j.site) || !!j.apply_email, email: j.apply_email || undefined,
   };
   if (j.status === 'found') {
     j.history = [...(j.history || []), { at: new Date(now).toISOString(), from: 'found', to: 'shortlisted', note: 'draft written' }].slice(-20);
@@ -340,3 +342,17 @@ export function autoCandidates(p = {}) {
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     .slice(0, Math.min(15, Number(p.limit) || 5));
 }
+
+/** App only: what the portal shows (counts and the latest steps; no letters, messages or links). */
+export function pipeline(p = {}) {
+  const jobs = loadJobs();
+  const counts = Object.fromEntries(STATUSES.map((s) => [s, 0]));
+  for (const j of jobs) counts[j.status] = (counts[j.status] || 0) + 1;
+  const steps = ['applied', 'replied', 'interview', 'offer', 'won', 'lost'];
+  const recent = jobs.flatMap((j) => (j.history || []).filter((h) => steps.includes(h.to)).map((h) => ({ title: j.title, company: j.company, site: j.site, status: h.to, at: Date.parse(h.at) || 0 })))
+    .sort((a, b) => b.at - a.at).slice(0, Math.min(20, Number(p.limit) || 10));
+  return { counts, total: jobs.length, recent, waiting: jobs.filter((j) => j.draft?.state === 'waiting').length };
+}
+
+/** App only: jobs that reached "won" (for the one-time notification). */
+export const wonJobs = () => loadJobs().filter((j) => j.status === 'won').map((j) => ({ id: j.id, title: j.title, company: j.company, site: j.site }));

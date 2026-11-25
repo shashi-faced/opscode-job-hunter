@@ -9,6 +9,7 @@ export const REPLY_STATES = ['none', 'waiting', 'sending', 'sent', 'needs_you', 
 
 /** Inbox pages of the sites (the browser finds Messages in the menu if a site moved it). */
 export const INBOX_URLS = {
+  email: '',
   naukri: 'https://www.naukri.com/mnjuser/inbox',
   linkedin: 'https://www.linkedin.com/messaging/',
   indeed: 'https://messages.indeed.com/conversations',
@@ -19,6 +20,26 @@ export const INBOX_URLS = {
 /** Words that make a message about money or a commitment: the reply always waits for the user's own reading. */
 const SENSITIVE_RE = /\$\s?\d|₹|\b(salary|ctc|lpa|lakhs?|package|rates?|budget|inr|usd|payment|paid|invoice|contract|offer letter|offer|accept|joining|join on|start date|notice period|bond|agreement|nda|sign|milestone|fixed[- ]price|hourly|per hour|\/hr)\b/i;
 export const isSensitive = (text) => SENSITIVE_RE.test(String(text || ''));
+
+/**
+ * What a message from the other side says about the job, strongest first. Only a hint: the user
+ * confirms before the job is marked (an "offer" can be a scam or a misunderstanding).
+ */
+const SIGNALS = [
+  ['hired', /\b(you(?:'|’)ve been hired|you have been hired|hired you|contract (?:has )?started|offer (?:has been )?accepted|welcome (?:to|aboard) the team|we(?:'|’)re (?:pleased|happy|delighted) to (?:offer|hire)|pleased to offer you|offer letter (?:is )?attached)\b/i],
+  ['offer', /\b(job offer|an offer|offer letter|we(?:'|’)d like to offer|we would like to offer|extend(?:ing)? an offer|selected for the (?:role|position))\b/i],
+  ['interview', /\b(interview|schedule a call|phone screen|technical round|hr round|shortlisted|next round|assessment|meet (?:with )?(?:the )?team|book a (?:time|slot))\b/i],
+  ['rejected', /\b(not (?:be )?moving forward|regret to inform|unfortunately[^.]{0,80}(?:not|other candidates)|position has been filled|not selected|decided to go with|declined your (?:proposal|application))\b/i],
+];
+export function signalOf(text) {
+  const t = String(text || '');
+  for (const [name, re] of SIGNALS) if (re.test(t)) return name;
+  return null;
+}
+
+/** Is an e-mail about the job search? (the user's mailbox has everything else too) */
+const JOB_MAIL_RE = /\b(application|applied|interview|position|role|opening|vacanc|opportunit|recruit|hiring|hired|resume|cv|candidate|offer|freelance|proposal|contract|job)\b/i;
+export const looksLikeJobMail = (t) => JOB_MAIL_RE.test(`${t.job_title || ''} ${(t.messages || []).map((m) => m.text).join(' ')}`);
 
 const str = (v, max = 300) => (v == null ? '' : String(v).replace(/\s+/g, ' ').trim().slice(0, max));
 const load = () => readJson('messages', 'threads', []);
@@ -43,7 +64,7 @@ function linkJob(thread, jobs) {
  */
 export function messagesAdd(p, jobsApi, now = Date.now()) {
   const site = str(p.site, 30).toLowerCase();
-  if (!INBOX_URLS[site]) throw new FixError(`unknown site "${p.site}"`, `use one of: ${Object.keys(INBOX_URLS).join(', ')}`);
+  if (!(site in INBOX_URLS)) throw new FixError(`unknown site "${p.site}"`, `use one of: ${Object.keys(INBOX_URLS).join(', ')}`);
   let incoming = p.threads;
   if (typeof incoming === 'string') { try { incoming = JSON.parse(incoming); } catch { throw new FixError('threads is not valid JSON', 'pass "threads" as an array'); } }
   if (!Array.isArray(incoming)) throw new FixError('threads is missing', 'pass "threads": the conversations read from the inbox');
@@ -53,6 +74,7 @@ export function messagesAdd(p, jobsApi, now = Date.now()) {
   for (const raw of incoming.slice(0, 50)) {
     const url = str(raw?.url || raw?.thread_url, 1000);
     const from = str(raw?.from || raw?.name, 120);
+    const email = str(raw?.email || raw?.from_email, 200);
     const company = str(raw?.company, 200);
     const msgs = (Array.isArray(raw?.messages) ? raw.messages : []).map((m) => ({ from: str(m?.from, 120), mine: m?.mine === true || m?.mine === 'true', text: str(m?.text, 3000), at: str(m?.at, 60) })).filter((m) => m.text).slice(-12);
     if (!from && !company) continue;
@@ -60,7 +82,17 @@ export function messagesAdd(p, jobsApi, now = Date.now()) {
     const key = url || `${site}|${from}|${company}`;
     const id = idFor(key);
     let t = threads.find((x) => x.id === id);
-    if (!t) { t = { id, site, url, from, company, job_title: str(raw?.job_title, 200), job: null, messages: [], reply: { state: 'none' }, updatedAt: null }; threads.push(t); }
+    if (!t) {
+      t = { id, site, url, from, company, job_title: str(raw?.job_title, 200), job: null, messages: [], reply: { state: 'none' }, updatedAt: null };
+      if (site === 'email') {
+        // Only mail about the job search is kept: from a company the user found jobs at, or about applying.
+        const known = linkJob(t, jobs);
+        if (!known && !looksLikeJobMail({ job_title: t.job_title, messages: msgs })) continue;
+        Object.assign(t, { email, gmail_thread: str(raw?.thread_id, 100), message_id: str(raw?.message_id, 300), subject: str(raw?.job_title || raw?.subject, 300) });
+      }
+      threads.push(t);
+    }
+    if (site === 'email' && raw?.message_id) t.message_id = str(raw.message_id, 300);
     const known = new Set(t.messages.map((m) => `${m.mine}|${m.text}`));
     const added = msgs.filter((m) => !known.has(`${m.mine}|${m.text}`));
     if (!added.length) continue;
@@ -71,6 +103,8 @@ export function messagesAdd(p, jobsApi, now = Date.now()) {
     if (!last.mine) {
       t.needsReply = true;
       t.sensitive = isSensitive(t.messages.filter((m) => !m.mine).slice(-3).map((m) => m.text).join(' '));
+      const sig = signalOf(added.filter((m) => !m.mine).map((m) => m.text).join(' '));
+      if (sig) { t.signal = sig; t.signalAt = new Date(now).toISOString(); }
       if (!['waiting', 'sending'].includes(t.reply.state)) t.reply = { state: 'none' };
       fresh.push(t);
       if (t.job) jobsApi.markReplied(t.job, `${from || company} wrote on ${site}`);
