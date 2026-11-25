@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readJson, writeJson, removeJson, listIds, FixError } from './store.mjs';
 import { scoreJob } from './score.mjs';
+import { checkDraft } from './draft.mjs';
 
 export const STATUSES = ['found', 'shortlisted', 'dismissed', 'applied', 'replied', 'interview', 'offer', 'won', 'lost'];
 export const SITES = {
@@ -249,4 +250,65 @@ export function jobsStatus() {
     searches: searches.map((s) => ({ id: s.id, site: s.site, kind: s.kind, query: s.query, location: s.location, lastRunAt: s.lastRunAt, lastFound: s.lastFound ?? null })),
     counts, total: jobs.length, strong: jobs.filter((j) => j.status === 'found' && (j.score ?? 0) >= 70).length, warnings,
   };
+}
+
+// ───────────────────────── drafts and applying (J2) ─────────────────────────
+// The agent writes a draft; only the app records what happens to it (the user's click, the browser's
+// result), with jobs_draft_state, which the agent does not have.
+
+/** What a draft can be: waiting for the user, being applied, done, or stopped with a reason. */
+export const DRAFT_STATES = ['waiting', 'applying', 'sent', 'ready_for_you', 'needs_you', 'failed', 'rejected'];
+/** Sites where the app submits after the user's OK. On freelance sites a proposal costs paid credits, so the user sends it. */
+export const SUBMIT_SITES = ['naukri', 'linkedin', 'indeed', 'other'];
+
+export function jobsDraft(p, now = Date.now()) {
+  const profile = needProfile();
+  const jobs = loadJobs();
+  const j = jobs.find((x) => x.id === String(p.job || ''));
+  if (!j) throw new FixError(`no job "${p.job}"`, 'use an id from jobs_list or jobs_digest');
+  if (['dismissed', 'lost', 'won'].includes(j.status)) throw new FixError(`the job is ${j.status}`, 'pick another job, or ask the user first');
+  if (j.draft && ['applying', 'sent'].includes(j.draft.state)) throw new FixError(`the application is already ${j.draft.state === 'sent' ? 'sent' : 'being sent'}`, 'do not write another one');
+  const kind = p.kind === 'proposal' || p.kind === 'cover_letter' ? p.kind : j.kind === 'freelance' ? 'proposal' : 'cover_letter';
+  const byUser = p.by_user === true || p.by_user === 'true';
+  const c = checkDraft(p.text, { job: j, profile, kind, byUser });
+  if (!c.ok) return { ok: false, job: j, check: c };
+  j.draft = {
+    kind, text: String(p.text).trim(), words: c.words, warnings: c.warnings.map((w) => w.warning),
+    state: 'waiting', byUser, createdAt: j.draft?.createdAt || new Date(now).toISOString(), updatedAt: new Date(now).toISOString(),
+    note: '', submit: SUBMIT_SITES.includes(j.site),
+  };
+  if (j.status === 'found') {
+    j.history = [...(j.history || []), { at: new Date(now).toISOString(), from: 'found', to: 'shortlisted', note: 'draft written' }].slice(-20);
+    j.status = 'shortlisted';
+  }
+  saveJobs(jobs);
+  return { ok: true, job: j, check: c };
+}
+
+/** Drafts by state (default: the ones that need the user). */
+export function jobsDrafts(p = {}) {
+  const states = p.state ? [].concat(p.state) : ['waiting', 'ready_for_you', 'needs_you', 'failed', 'applying'];
+  return loadJobs().filter((j) => j.draft && states.includes(j.draft.state))
+    .sort((a, b) => String(b.draft.updatedAt).localeCompare(String(a.draft.updatedAt)));
+}
+
+/** App only: record what happened to a draft. "sent" also marks the job applied. */
+export function jobsDraftState(p, now = Date.now()) {
+  if (!DRAFT_STATES.includes(p.state)) throw new FixError(`unknown state "${p.state}"`, `use one of: ${DRAFT_STATES.join(', ')}`);
+  const jobs = loadJobs();
+  const j = jobs.find((x) => x.id === String(p.job || ''));
+  if (!j) throw new FixError(`no job "${p.job}"`, 'use an id from jobs_drafts');
+  if (!j.draft) throw new FixError('the job has no draft', 'write one with jobs_draft first');
+  j.draft.state = p.state;
+  j.draft.note = str(p.note, 1000);
+  j.draft.updatedAt = new Date(now).toISOString();
+  if (p.state === 'sent') {
+    j.draft.sentAt = j.draft.updatedAt;
+    if (!['applied', 'replied', 'interview', 'offer', 'won'].includes(j.status)) {
+      j.history = [...(j.history || []), { at: j.draft.updatedAt, from: j.status, to: 'applied', note: p.note ? str(p.note, 300) : 'applied from the Jobs tab' }].slice(-20);
+      j.status = 'applied';
+    }
+  }
+  saveJobs(jobs);
+  return j;
 }

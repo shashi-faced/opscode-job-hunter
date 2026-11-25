@@ -1,14 +1,21 @@
 {
   "name": "@opscode/job-hunter",
-  "version": "0.1.0",
-  "description": "Opscode Job & Freelance Finder agent: your CV and saved searches in, matching jobs and freelance gigs, scored and explained, out.",
+  "version": "0.2.0",
+  "description": "Opscode Job & Freelance Finder agent: your CV and saved searches in, matching jobs and freelance gigs scored and explained, cover letters and proposals checked against your CV, applied after your OK.",
   "type": "module",
   "bin": {
     "opscode-jobs": "bin/opscode-jobs.mjs"
   },
   "main": "src/tools.mjs",
-  "files": ["bin", "src", "agent", "README.md"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "bin",
+    "src",
+    "agent",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test test/*.test.mjs"
   },

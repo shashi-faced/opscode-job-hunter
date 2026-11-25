@@ -26,7 +26,7 @@ export function browserTask(search) {
 export function guide() {
   return `# Job & Freelance Finder: how a search run works
 
-Nothing is ever sent in this version: you read job pages, keep the jobs, score them and show the best ones. You do not apply, send proposals or messages, or e-mail anyone. If the user asks for that, say it comes in the next version and offer the job link so they can apply themselves (then record it with jobs_mark "applied").
+You read job pages, keep the jobs, score them, show the best ones, and write cover letters and proposals (jobs_draft). You never apply, send or message anyone yourself, and never ask the browser to click Apply, Submit or Send: the user applies with one click in the Jobs tab, and the app does the rest.
 
 ## 1. Profile (once)
 - jobs_cv_read {path} → the CV text.
@@ -49,4 +49,49 @@ A numbered list, best first: score, title, company, place, pay, why it fits (and
 ## Job format (what the browser returns)
 ${JOB_FORMAT}
 `;
+}
+
+/**
+ * The Browser Agent's task for one approved application (built for the app; the agent never gets it).
+ * On job sites the user's click in the app is the confirmation to submit THIS application; on
+ * freelance sites a proposal costs paid credits, so the form is filled and the user sends it.
+ */
+export function applyTask(job, profile) {
+  const submit = !!job.draft?.submit;
+  const facts = [
+    profile?.name && `Name: ${profile.name}`,
+    profile?.years != null && `Years of experience: ${profile.years}`,
+    profile?.skills?.length && `Skills: ${profile.skills.join(', ')}`,
+    profile?.locations?.length && `Preferred locations: ${profile.locations.join(', ')}${profile.remote ? ' (remote is fine)' : ''}`,
+    profile?.cv_path && `CV file to upload when the form asks for one and none is attached: ${profile.cv_path}`,
+  ].filter(Boolean);
+  const where = `${job.title}${job.company ? ` at ${job.company}` : ''} on ${job.site}`;
+  return [
+    submit
+      ? `USER CONFIRMED: the user approved this one application in the app: "${where}". Submit only this application, with the text below.`
+      : `The user approved this proposal for "${where}". Fill it in, but do NOT click Send / Submit a proposal: that spends the user's paid credits, so the user sends it.`,
+    `Job page: ${job.url}`,
+    '',
+    '1. Open the job page. If a sign-in, verification or CAPTCHA page appears, hand it to the user and continue when they are done.',
+    '2. Click Apply (or Easy Apply, Apply now, I\'m interested, Submit a proposal). If the site sends you to the company\'s own website, stop there.',
+    '3. Fill the form ONLY with the facts below and what the site already filled in from the user\'s account (leave those as they are).',
+    '4. In the cover letter / message / proposal box, paste the text below EXACTLY, without changing a word. If there is no such box, skip it.',
+    '5. If the form asks anything the facts do not answer (current or expected salary, notice period, work permit, rates, screening questions), do not guess and do not pick an answer: stop.',
+    submit
+      ? '6. When every field is filled, look over the form once, then click the final Submit / Send application button with confirmed: true.'
+      : '6. When the proposal is filled in, stop. Do not click Send or Submit.',
+    '7. End your answer with exactly ONE line:',
+    '   RESULT: SENT                       (the site showed the application was sent)',
+    '   RESULT: READY_FOR_YOU <what is left for the user to click>',
+    '   RESULT: NEEDS_YOU <the questions or step the user must answer>',
+    '   RESULT: FAILED <why>',
+    '',
+    'Facts about the user:',
+    ...facts.map((f) => `- ${f}`),
+    '',
+    `${job.draft?.kind === 'proposal' ? 'Proposal' : 'Cover letter'} (paste exactly):`,
+    '---',
+    job.draft?.text || '',
+    '---',
+  ].join('\n');
 }

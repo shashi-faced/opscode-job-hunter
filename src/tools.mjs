@@ -3,8 +3,10 @@ import { FixError } from './store.mjs';
 import {
   STATUSES, SITES, cvRead, profileGet, profileSet, searchAdd, searchList, searchRemove,
   jobsAdd, jobsScore, jobsList, jobsMark, jobsDigest, jobsStatus, getJob,
+  jobsDraft, jobsDrafts, jobsDraftState, DRAFT_STATES, profileGet as profileOf,
 } from './records.mjs';
-import { guide, browserTask } from './guide.mjs';
+import { guide, browserTask, applyTask } from './guide.mjs';
+import { LIMITS } from './draft.mjs';
 
 const S = { type: 'string' };
 const A = { type: 'array', items: S };
@@ -33,11 +35,18 @@ export const TOOL_DEFS = [
   { name: 'jobs_get', description: 'One job with its full text, score, reasons and history.', parameters: { type: 'object', properties: { job: S }, required: ['job'] } },
   { name: 'jobs_mark', description: `Record where a job stands, as the user said: ${STATUSES.join(', ')}.`, parameters: { type: 'object', properties: { ...jobParam, status: { type: 'string', enum: STATUSES }, note: S }, required: ['job', 'status'] } },
   { name: 'jobs_digest', description: 'The new matches of the last hours (default 24), best first.', parameters: { type: 'object', properties: { hours: { type: 'number' }, min_score: { type: 'number', description: 'default 60' }, limit: { type: 'number' } }, required: [] } },
+  { name: 'jobs_draft', description: `Keep a cover letter (job sites) or proposal (freelance sites) for one job. It is checked: ${LIMITS.cover_letter.min}-${LIMITS.cover_letter.max} words for a cover letter, ${LIMITS.proposal.min}-${LIMITS.proposal.max} for a proposal; no skill or years the profile does not have; no placeholders; no contact details in proposals. It then waits for the user's OK in the Jobs tab: you cannot send it.`, parameters: { type: 'object', properties: { job: { type: 'string', description: 'job id' }, text: { type: 'string', description: 'the full text, ready to send' }, kind: { type: 'string', enum: ['cover_letter', 'proposal'], description: 'default: proposal for freelance, cover letter for jobs' } }, required: ['job', 'text'] } },
+  { name: 'jobs_drafts', description: 'Applications waiting for the user (or by state), with their text and what happened.', parameters: { type: 'object', properties: { state: { type: 'string', enum: DRAFT_STATES } }, required: [] } },
   { name: 'jobs_status', description: 'Overview: profile, saved searches with their last run, counts per status, warnings.', parameters: { type: 'object', properties: {}, required: [] } },
 ];
 
 const where = (j) => [j.company, j.location, j.salary].filter(Boolean).join(' · ');
 const line = (j, i) => `${i != null ? `${i + 1}. ` : ''}[${j.score ?? '–'}] ${j.title}${where(j) ? ` — ${where(j)}` : ''} (${j.site}, ${j.status}, id ${j.id})${j.reasons ? `\n   ${j.reasons}` : ''}${j.url ? `\n   ${j.url}` : ''}`;
+
+const draftLine = (j) => `- ${j.title}${j.company ? ` — ${j.company}` : ''} (${j.site}, id ${j.id}): ${j.draft.kind.replace('_', ' ')}, ${j.draft.words} words, ${j.draft.state.replace('_', ' ')}${j.draft.note ? ` — ${j.draft.note}` : ''}`;
+
+/** Tools only the app calls (not in TOOL_DEFS, so the agent never has them): the user's decision and the browser's result. */
+export const APP_TOOLS = ['jobs_draft_state', 'jobs_apply_task'];
 
 const RUN = {
   jobs_guide: () => ({ text: guide() }),
@@ -65,6 +74,20 @@ const RUN = {
     const r = jobsDigest(p);
     const head = `${r.found} job(s) found in the last ${r.hours} h; ${r.matches.length + r.more} match ${r.min_score}+${r.unscored ? ` (${r.unscored} not scored yet: call jobs_score)` : ''}.`;
     return { text: r.matches.length ? `${head}\n${r.matches.map((j, i) => line(j, i)).join('\n')}${r.more ? `\n…and ${r.more} more (jobs_list)` : ''}` : head, data: r };
+  },
+  jobs_draft: (p) => {
+    const r = jobsDraft(p);
+    if (!r.ok) return { ok: false, text: [`Not kept: ${r.check.errors.length} problem(s):`, ...r.check.errors.map((e) => `- ${e.error}. Fix: ${e.fix}`)].join('\n'), data: { errors: r.check.errors, warnings: r.check.warnings } };
+    const d = r.job.draft;
+    return { text: `Kept the ${d.kind.replace('_', ' ')} for "${r.job.title}" (${d.words} words).${d.warnings.length ? ` Note: ${d.warnings.join('; ')}.` : ''} It waits for the user in the Jobs tab: ${d.submit ? 'one click there applies' : 'one click there fills in the proposal; the user sends it, as it costs their credits'}.`, data: { job: r.job.id, draft: d } };
+  },
+  jobs_drafts: (p) => { const l = jobsDrafts(p); return { text: l.length ? l.map(draftLine).join('\n') : 'No applications waiting.', data: l }; },
+  jobs_draft_state: (p) => { const j = jobsDraftState(p); return { text: `${j.title}: ${j.draft.state.replace('_', ' ')}${j.status === 'applied' ? ' (marked applied)' : ''}.`, data: j }; },
+  jobs_apply_task: (p) => {
+    const j = getJob(p.job);
+    if (!j.draft?.text) throw new FixError('the job has no draft', 'write one with jobs_draft first');
+    if (!j.url) throw new FixError('the job has no link', 'add the job again with its link');
+    return { text: applyTask(j, profileOf()), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company } };
   },
   jobs_status: () => {
     const r = jobsStatus();
