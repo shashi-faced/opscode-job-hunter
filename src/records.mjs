@@ -12,7 +12,6 @@ export const SITES = {
   naukri: { name: 'Naukri', kind: 'job' },
   linkedin: { name: 'LinkedIn', kind: 'job' },
   indeed: { name: 'Indeed', kind: 'job' },
-  upwork: { name: 'Upwork', kind: 'freelance' },
   freelancer: { name: 'Freelancer', kind: 'freelance' },
   other: { name: 'Other site', kind: 'job' },
 };
@@ -86,7 +85,6 @@ export function searchUrl({ site, query, location }) {
     case 'naukri': return `https://www.naukri.com/${slug(query)}-jobs${location && !/remote/i.test(location) ? `-in-${slug(location)}` : ''}${/remote/i.test(location || '') ? '?wfhType=2' : ''}`;
     case 'linkedin': return `https://www.linkedin.com/jobs/search/?keywords=${q}${location ? `&location=${l}` : ''}&sortBy=DD`;
     case 'indeed': return `https://in.indeed.com/jobs?q=${q}${location ? `&l=${l}` : ''}&sort=date`;
-    case 'upwork': return `https://www.upwork.com/nx/search/jobs/?q=${q}&sort=recency`;
     case 'freelancer': return `https://www.freelancer.com/search/projects?q=${q}`;
     default: return null;
   }
@@ -105,7 +103,12 @@ export function searchAdd(p) {
   writeJson('searches', id, prev ? { ...prev, ...s, createdAt: prev.createdAt, lastRunAt: prev.lastRunAt } : s);
   return { search: readJson('searches', id), existed: !!prev };
 }
-export const searchList = () => listIds('searches').map((id) => readJson('searches', id)).filter(Boolean);
+/** Saved searches. A search on a site that is no longer supported (Upwork, 0.5.1) is removed. */
+export const searchList = () => listIds('searches').map((id) => readJson('searches', id)).filter(Boolean).filter((s) => {
+  if (SITES[s.site]) return true;
+  removeJson('searches', s.id);
+  return false;
+});
 export function searchRemove({ search }) {
   if (!readJson('searches', search, null)) throw new FixError(`no saved search "${search}"`, 'use an id from jobs_search_list');
   removeJson('searches', search);

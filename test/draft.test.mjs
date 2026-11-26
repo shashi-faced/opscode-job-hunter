@@ -8,6 +8,9 @@ process.env.OPSCODE_JOBS_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'jobs-draf
 const { checkDraft } = await import('../src/draft.mjs');
 const R = await import('../src/records.mjs');
 const { runTool, TOOL_DEFS, APP_TOOLS } = await import('../src/tools.mjs');
+// The user confirmed signing in to the sites (applications need it; see logins.test.mjs).
+const L = await import('../src/logins.mjs');
+for (const site of ['naukri', 'linkedin', 'indeed', 'freelancer']) L.loginMark({ site, signed_in: true });
 
 const profile = { name: 'Asha K', skills: ['React', 'Node.js', 'TypeScript'], years: 4, locations: ['bengaluru'], remote: true, cv_path: '/home/asha/cv.pdf' };
 const job = { title: 'React Developer', company: 'Acme', skills: ['React', 'GraphQL'] };
@@ -57,8 +60,8 @@ test('the user\'s own edit: only the hard limits apply', () => {
 test('drafts wait for the user; only the app records the result; "sent" marks the job applied', async () => {
   R.profileSet(profile);
   R.jobsAdd({ site: 'naukri', jobs: [{ title: 'React Developer', company: 'Acme', url: 'https://www.naukri.com/job-listings-react-acme-1', description: 'React, TypeScript' }] });
-  R.jobsAdd({ site: 'upwork', jobs: [{ title: 'React dashboard', company: 'Client', url: 'https://www.upwork.com/jobs/~01abc', description: 'React' }] });
-  const [naukri, upwork] = R.jobsList({ all: true }).sort((a, b) => a.site.localeCompare(b.site));
+  R.jobsAdd({ site: 'freelancer', jobs: [{ title: 'React dashboard', company: 'Client', url: 'https://www.freelancer.com/projects/react/react-dashboard-1', description: 'React' }] });
+  const all = R.jobsList({ all: true }); const naukri = all.find((j) => j.site === 'naukri'); const gig = all.find((j) => j.site === 'freelancer');
   const bad = await runTool('jobs_draft', { job: naukri.id, text: LETTER.replace('last 4 years', 'last 9 years') });
   assert.equal(bad.ok, false);
   assert.match(bad.text, /Not kept: 1 problem/);
@@ -66,7 +69,7 @@ test('drafts wait for the user; only the app records the result; "sent" marks th
   assert.equal(ok.ok, true, ok.text);
   assert.match(ok.text, /one click there applies/);
   assert.equal(R.getJob(naukri.id).status, 'shortlisted');
-  const prop = await runTool('jobs_draft', { job: upwork.id, text: LETTER.replace('Dear Acme team,', 'Your dashboard needs fast, clear charts.') });
+  const prop = await runTool('jobs_draft', { job: gig.id, text: LETTER.replace('Dear Acme team,', 'Your dashboard needs fast, clear charts.') });
   assert.equal(prop.ok, true, prop.text);
   assert.equal(prop.data.draft.kind, 'proposal');
   assert.equal(prop.data.draft.submit, false);
@@ -87,7 +90,7 @@ test('drafts wait for the user; only the app records the result; "sent" marks th
 });
 
 test('the apply task: job sites submit only this one application; freelance sites stop before Send', async () => {
-  const [naukri, upwork] = R.jobsList({ all: true }).sort((a, b) => a.site.localeCompare(b.site));
+  const all = R.jobsList({ all: true }); const naukri = all.find((j) => j.site === 'naukri'); const gig = all.find((j) => j.site === 'freelancer');
   R.jobsDraftState({ job: naukri.id, state: 'waiting' });
   const t = await runTool('jobs_apply_task', { job: naukri.id });
   assert.equal(t.data.submit, true);
@@ -97,7 +100,7 @@ test('the apply task: job sites submit only this one application; freelance site
   assert.match(t.text, /CV file to upload when the form asks for one and none is attached: \/home\/asha\/cv\.pdf/);
   assert.ok(t.text.includes(LETTER));
   assert.match(t.text, /RESULT: SENT/);
-  const u = await runTool('jobs_apply_task', { job: upwork.id });
+  const u = await runTool('jobs_apply_task', { job: gig.id });
   assert.equal(u.data.submit, false);
   assert.doesNotMatch(u.text, /USER CONFIRMED/);
   assert.match(u.text, /do NOT click Send/);

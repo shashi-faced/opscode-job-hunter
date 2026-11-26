@@ -13,7 +13,6 @@ export const INBOX_URLS = {
   naukri: 'https://www.naukri.com/mnjuser/inbox',
   linkedin: 'https://www.linkedin.com/messaging/',
   indeed: 'https://messages.indeed.com/conversations',
-  upwork: 'https://www.upwork.com/ab/messages/rooms/',
   freelancer: 'https://www.freelancer.com/messages',
 };
 
@@ -134,7 +133,7 @@ export function checkReply(text, thread, byUser = false) {
   if (t.length > 2000) errors.push({ error: `${t.length} characters`, fix: 'keep a reply under 2000 characters' });
   const ph = /\[[^\]\n]{2,40}\]|\{\{?[^}\n]{1,40}\}?\}|\b(TODO|TBD|XXX)\b/i.exec(t);
   if (ph) errors.push({ error: `"${ph[0]}" is a placeholder`, fix: 'fill it in or remove it' });
-  if (['upwork', 'freelancer'].includes(thread.site)) {
+  if (thread.site === 'freelancer') {
     const c = /[\w.+-]+@[\w-]+\.[\w.]+|(?:\+?\d[\s-]?){10,}|\b(whatsapp|telegram|skype)\b/i.exec(t);
     if (c) errors.push({ error: `"${c[0]}" is contact information`, fix: `remove it: ${thread.site} does not allow contact details before a contract` });
   }

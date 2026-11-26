@@ -8,6 +8,7 @@ import {
 import { guide, browserTask, applyTask, inboxTask, replyTask } from './guide.mjs';
 import { INBOX_URLS, messagesAdd, inbox, getThread, replyDraft, replyState, REPLY_STATES } from './messages.mjs';
 import { LIMITS } from './draft.mjs';
+import { LOGIN_URLS, SITE_NAMES, loginStatus, loginMark, signedIn } from './logins.mjs';
 
 const S = { type: 'string' };
 const A = { type: 'array', items: S };
@@ -39,7 +40,9 @@ export const TOOL_DEFS = [
   { name: 'jobs_draft', description: `Keep a cover letter (job sites) or proposal (freelance sites) for one job. It is checked: ${LIMITS.cover_letter.min}-${LIMITS.cover_letter.max} words for a cover letter, ${LIMITS.proposal.min}-${LIMITS.proposal.max} for a proposal; no skill or years the profile does not have; no placeholders; no contact details in proposals. It then waits for the user's OK in the Jobs tab: you cannot send it.`, parameters: { type: 'object', properties: { job: { type: 'string', description: 'job id' }, text: { type: 'string', description: 'the full text, ready to send' }, kind: { type: 'string', enum: ['cover_letter', 'proposal'], description: 'default: proposal for freelance, cover letter for jobs' } }, required: ['job', 'text'] } },
   { name: 'jobs_drafts', description: 'Applications waiting for the user (or by state), with their text and what happened.', parameters: { type: 'object', properties: { state: { type: 'string', enum: DRAFT_STATES } }, required: [] } },
   { name: 'jobs_inbox', description: 'Conversations with recruiters and clients that need a reply (or all), with their last messages and the job they are about.', parameters: { type: 'object', properties: { all: { type: 'boolean' } }, required: [] } },
-  { name: 'jobs_reply_draft', description: 'Keep a reply to one conversation. It waits for the user\'s Send in the Jobs tab: you cannot send it. Never accept, agree or commit for the user (rates, salary, start dates, contracts, interviews times are the user\'s to confirm); answer from the profile only. No contact details on Upwork or Freelancer.', parameters: { type: 'object', properties: { thread: { type: 'string', description: 'conversation id from jobs_inbox' }, text: { type: 'string', description: 'the reply, ready to send' } }, required: ['thread', 'text'] } },
+  { name: 'jobs_reply_draft', description: 'Keep a reply to one conversation. It waits for the user\'s Send in the Jobs tab: you cannot send it. Never accept, agree or commit for the user (rates, salary, start dates, contracts, interviews times are the user\'s to confirm); answer from the profile only. No contact details on Freelancer.', parameters: { type: 'object', properties: { thread: { type: 'string', description: 'conversation id from jobs_inbox' }, text: { type: 'string', description: 'the reply, ready to send' } }, required: ['thread', 'text'] } },
+  { name: 'jobs_login_status', description: 'Which sites the user confirmed being signed in to, with each site\'s sign-in page (login_url). Searches, applications and inbox checks only run on confirmed sites.', parameters: { type: 'object', properties: { sites: { ...A, description: 'sites to check (default: the sites of the saved searches)' } }, required: [] } },
+  { name: 'jobs_login_mark', description: 'Record the user\'s answer after you opened a site\'s sign-in page with open_sign_in and asked (ask_question): signed_in true only when the user said they are signed in; skip true when they want to leave that site out for now. Never ask for or record a password or code.', parameters: { type: 'object', properties: { site: { type: 'string', enum: Object.keys(LOGIN_URLS) }, signed_in: { type: 'boolean' }, skip: { type: 'boolean' } }, required: ['site', 'signed_in'] } },
   { name: 'jobs_status', description: 'Overview: profile, saved searches with their last run, counts per status, warnings.', parameters: { type: 'object', properties: {}, required: [] } },
 ];
 
@@ -52,6 +55,8 @@ const draftLine = (j) => `- ${j.title}${j.company ? ` — ${j.company}` : ''} ($
 export const APP_TOOLS = ['jobs_draft_state', 'jobs_apply_task', 'jobs_inbox_task', 'jobs_messages_add', 'jobs_reply_state', 'jobs_reply_task', 'jobs_auto_candidates', 'jobs_pipeline', 'jobs_won'];
 const threadLine = (t) => `- ${t.from || t.company}${t.company && t.from ? ` (${t.company})` : ''} on ${t.site}, id ${t.id}${t.job ? `, job ${t.job}` : ''}${t.signal ? ` [${t.signal}]` : ''}${t.sensitive ? ' ⚠ money or commitment' : ''}: "${(t.messages.filter((m) => !m.mine).at(-1)?.text || '').slice(0, 200)}"${t.reply?.state && t.reply.state !== 'none' ? ` — reply ${t.reply.state.replace('_', ' ')}` : ''}`;
 
+const searchListText = (l) => (l.length ? l.map((s) => `- ${s.id}: ${SITES[s.site].name}, "${s.query}"${s.location ? ` in ${s.location}` : ''} (last run ${s.lastRunAt || 'never'})`).join('\n') + '\nEach has browser_task in data: hand it to the Browser Agent word for word.' : 'No saved searches yet. Add one with jobs_search_add.');
+
 const RUN = {
   jobs_guide: () => ({ text: guide() }),
   jobs_cv_read: (p, ctx) => { const r = cvRead(p, ctx.cwd); return { text: `CV ${r.file} (${r.chars} characters):\n\n${r.text}`, data: { file: r.file, chars: r.chars } }; },
@@ -59,8 +64,13 @@ const RUN = {
   jobs_profile_get: () => { const r = profileGet(); return { text: r ? JSON.stringify(r, null, 2) : 'No profile yet. Read the CV with jobs_cv_read.', data: r }; },
   jobs_search_add: (p) => { const r = searchAdd(p); return { text: `${r.existed ? 'Updated' : 'Saved'} search ${r.search.id}: ${SITES[r.search.site].name} ${r.search.kind}, "${r.search.query}"${r.search.location ? ` in ${r.search.location}` : ''}\n${r.search.url}`, data: r.search }; },
   jobs_search_list: () => {
-    const l = searchList().map((s) => ({ ...s, browser_task: browserTask(s) }));
-    return { text: l.length ? l.map((s) => `- ${s.id}: ${SITES[s.site].name}, "${s.query}"${s.location ? ` in ${s.location}` : ''} (last run ${s.lastRunAt || 'never'})`).join('\n') + '\nEach has browser_task in data: hand it to the Browser Agent word for word.' : 'No saved searches yet. Add one with jobs_search_add.', data: l };
+    const l = searchList().map((s) => ({ ...s, signed_in: signedIn(s.site), browser_task: browserTask(s) }));
+    const out = [...new Set(l.filter((s) => !s.signed_in).map((s) => s.site))];
+    if (out.length) {
+      const base = searchListText(l);
+      return { text: `${base}\n⚠ Not signed in yet: ${out.map((x) => SITE_NAMES[x] || x).join(', ')}. Before searching those, open each with open_sign_in (login_url from jobs_login_status) and ask the user if they are signed in.`, data: l };
+    }
+    return { text: searchListText(l), data: l };
   },
   jobs_search_remove: (p) => { const r = searchRemove(p); return { text: `Removed search ${r.removed}.`, data: r }; },
   jobs_add: (p) => {
@@ -92,6 +102,7 @@ const RUN = {
     if (!j.draft?.text) throw new FixError('the job has no draft', 'write one with jobs_draft first');
     if (!j.url && !j.apply_email) throw new FixError('the job has no link', 'add the job again with its link');
     const auto = p.auto && typeof p.auto === 'object' ? { min_score: Number(p.auto.min_score), sites: [].concat(p.auto.sites || []), daily_cap: Number(p.auto.daily_cap) } : null;
+    if (!j.apply_email && LOGIN_URLS[j.site] && !signedIn(j.site)) throw new FixError(`the user has not confirmed being signed in to ${SITE_NAMES[j.site]}`, `open ${LOGIN_URLS[j.site]} for the user (Jobs tab → Sites → Open sign-in), and apply after they say they are signed in`);
     const prof = profileOf() || {};
     // Applying by e-mail: the app sends it through the user's Gmail (no browser).
     const email = j.apply_email ? { to: j.apply_email, subject: `Application: ${j.title}${prof.name ? ` — ${prof.name}` : ''}`, body: j.draft.text, attachment: prof.cv_path || null } : null;
@@ -120,6 +131,16 @@ const RUN = {
   jobs_auto_candidates: (p) => { const l = autoCandidates(p); return { text: l.map((j) => `${j.score} ${j.title} (${j.id})`).join('\n') || 'None.', data: l }; },
   jobs_pipeline: (p) => { const r = pipeline(p); return { text: `${r.total} jobs: ${Object.entries(r.counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ')}`, data: r }; },
   jobs_won: () => { const l = wonJobs(); return { text: l.map((j) => `${j.title} — ${j.company}`).join('\n') || 'None yet.', data: l }; },
+  jobs_login_status: (p) => {
+    const sites = [].concat(p.sites || []).length ? [].concat(p.sites) : [...new Set(searchList().map((x) => x.site))];
+    const l = loginStatus(sites);
+    if (!l.length) return { text: 'No sites with a sign-in yet: save searches first.', data: [] };
+    return { text: l.map((x) => `- ${x.name}: ${x.signed_in ? `signed in (the user confirmed ${x.at})` : x.skipped ? 'skipped for now' : 'not signed in yet'} — ${x.login_url}`).join('\n'), data: l };
+  },
+  jobs_login_mark: (p) => {
+    const r = loginMark(p);
+    return { text: r.signed_in ? `${r.name}: signed in, as the user said. Searches and applications on ${r.name} can run.` : r.skipped ? `${r.name}: skipped for now; leave its searches out.` : `${r.name}: not signed in yet. Ask again when the user is ready.`, data: r };
+  },
   jobs_status: () => {
     const r = jobsStatus();
     const t = [

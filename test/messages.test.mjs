@@ -8,10 +8,13 @@ process.env.OPSCODE_JOBS_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'jobs-msg-
 const R = await import('../src/records.mjs');
 const M = await import('../src/messages.mjs');
 const { runTool, TOOL_DEFS, APP_TOOLS } = await import('../src/tools.mjs');
+// The user confirmed signing in to the sites (applications need it; see logins.test.mjs).
+const L = await import('../src/logins.mjs');
+for (const site of ['naukri', 'linkedin', 'indeed', 'freelancer']) L.loginMark({ site, signed_in: true });
 
 R.profileSet({ name: 'Asha', skills: ['React', 'Node.js'], years: 4 });
 R.jobsAdd({ site: 'naukri', jobs: [{ title: 'React Developer', company: 'Acme Tech', url: 'https://www.naukri.com/job-listings-react-acme-1', description: 'React' }] });
-R.jobsAdd({ site: 'upwork', jobs: [{ title: 'React dashboard', company: 'Blue Co', url: 'https://www.upwork.com/jobs/~01x', description: 'React' }] });
+R.jobsAdd({ site: 'freelancer', jobs: [{ title: 'React dashboard', company: 'Blue Co', url: 'https://www.freelancer.com/projects/react/react-dashboard-1', description: 'React' }] });
 const acme = R.jobsList({ all: true }).find((j) => j.company === 'Acme Tech');
 const blue = R.jobsList({ all: true }).find((j) => j.company === 'Blue Co');
 R.jobsMark({ job: acme.id, status: 'applied' });
@@ -43,13 +46,13 @@ test('a reply that accepts or commits for the user is refused; a plain one is ke
 });
 
 test('money or commitment is marked for the user\'s own reading; contact details are refused on freelance sites', async () => {
-  const r = await runTool('jobs_messages_add', { site: 'upwork', threads: [{ url: 'https://www.upwork.com/ab/messages/rooms/r1', from: 'Sam', company: 'Blue Co', job_title: 'React dashboard', messages: [{ from: 'Sam', text: 'Can you do it for $20/hr? Please share your WhatsApp.' }] }] });
+  const r = await runTool('jobs_messages_add', { site: 'freelancer', threads: [{ url: 'https://www.freelancer.com/messages/thread/r1', from: 'Sam', company: 'Blue Co', job_title: 'React dashboard', messages: [{ from: 'Sam', text: 'Can you do it for $20/hr? Please share your WhatsApp.' }] }] });
   assert.equal(r.data.fresh[0].sensitive, true);
   assert.equal(r.data.fresh[0].job, blue.id);
   const id = r.data.fresh[0].id;
   const bad = await runTool('jobs_reply_draft', { thread: id, text: 'Sure, message me on WhatsApp +91 98765 43210.' });
   assert.match(bad.text, /contact information/);
-  const ok = await runTool('jobs_reply_draft', { thread: id, text: 'Thanks Sam. I would like to discuss the rate here on Upwork before we start. Could you share more about the dashboard?' });
+  const ok = await runTool('jobs_reply_draft', { thread: id, text: 'Thanks Sam. I would like to discuss the rate here on Freelancer before we start. Could you share more about the dashboard?' });
   assert.equal(ok.ok, true, ok.text);
   assert.match(ok.text, /money or a commitment/);
 });
@@ -83,7 +86,7 @@ test('auto mode: candidates are job-site matches above the score with no sent ap
     { title: 'Java Developer', company: 'Old', url: 'https://www.naukri.com/job-listings-old-3', description: 'Java' },
   ] });
   R.jobsScore();
-  const c = await runTool('jobs_auto_candidates', { min_score: 40, sites: ['naukri', 'upwork'], daily_cap: 5 });
+  const c = await runTool('jobs_auto_candidates', { min_score: 40, sites: ['naukri', 'freelancer'], daily_cap: 5 });
   const names = c.data.map((j) => j.company);
   assert.ok(names.includes('Zed'));
   assert.ok(!names.includes('Old'), 'low score left out');

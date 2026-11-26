@@ -19,7 +19,8 @@ test('a search link is built for each known site', () => {
   assert.equal(R.searchUrl({ site: 'naukri', query: 'React Developer', location: 'Bengaluru' }), 'https://www.naukri.com/react-developer-jobs-in-bengaluru');
   assert.equal(R.searchUrl({ site: 'naukri', query: 'react', location: 'Remote' }), 'https://www.naukri.com/react-jobs?wfhType=2');
   assert.match(R.searchUrl({ site: 'linkedin', query: 'react developer', location: 'India' }), /keywords=react%20developer&location=India&sortBy=DD/);
-  assert.match(R.searchUrl({ site: 'upwork', query: 'next.js' }), /upwork\.com\/nx\/search\/jobs\/\?q=next\.js&sort=recency/);
+  assert.equal(R.searchUrl({ site: 'freelancer', query: 'next.js' }), 'https://www.freelancer.com/search/projects?q=next.js');
+  assert.equal(R.searchUrl({ site: 'upwork', query: 'next.js' }), null, 'Upwork is not supported (it blocks automated browsers)');
   assert.equal(R.searchUrl({ site: 'other', query: 'x' }), null);
 });
 
@@ -27,11 +28,12 @@ test('saved searches: added once, listed, removed; "other" needs a link', () => 
   const a = R.searchAdd({ site: 'naukri', query: 'react developer', location: 'bengaluru' });
   assert.equal(a.search.kind, 'job');
   assert.equal(R.searchAdd({ site: 'naukri', query: 'react developer', location: 'bengaluru' }).existed, true);
-  assert.equal(R.searchAdd({ site: 'upwork', query: 'react' }).search.kind, 'freelance');
+  assert.equal(R.searchAdd({ site: 'freelancer', query: 'react' }).search.kind, 'freelance');
+  assert.throws(() => R.searchAdd({ site: 'upwork', query: 'react' }), /unknown site/);
   assert.throws(() => R.searchAdd({ site: 'other', query: 'x' }), /url is missing/);
   assert.throws(() => R.searchAdd({ site: 'monster', query: 'x' }), /unknown site/);
   assert.equal(R.searchList().length, 2);
-  R.searchRemove({ search: R.searchList().find((s) => s.site === 'upwork').id });
+  R.searchRemove({ search: R.searchList().find((s) => s.site === 'freelancer').id });
   assert.equal(R.searchList().length, 1);
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "@opscode/job-hunter",
-  "version": "0.4.0",
+  "version": "0.5.1",
   "description": "Opscode Job & Freelance Finder agent: your CV and saved searches in, matching jobs scored and explained, checked cover letters and proposals, applications on your OK or within your auto-mode limits, and drafted replies to recruiters.",
   "type": "module",
   "bin": {
