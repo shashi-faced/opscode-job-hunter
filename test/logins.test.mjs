@@ -55,7 +55,7 @@ test('Upwork is gone (it blocks automated browsers): no sign-in, no search, an o
   assert.ok(!l.data.some((x) => x.site === 'upwork'));
   assert.equal(fs.existsSync(path.join(process.env.OPSCODE_JOBS_HOME, 'searches', 'upwork-react.json')), false);
   assert.ok(!manifest.setup.fields.find((f) => f.id === 'sites').options.some((o) => o.value === 'upwork'), 'not offered in setup');
-  assert.match(manifest.systemPrompt, /Upwork is not supported: it blocks automated browsers[\s\S]*never try to get around a site's block/);
+  assert.match(manifest.systemPrompt, /Upwork, Glassdoor, Instahyre, Workana, Truelancer and RemoteOK are not supported: they block automated browsers[\s\S]*never try to get around a site's block/);
 });
 
 test('the agent opens the page and asks with buttons; it never asks for a password; only the user\'s answer marks a site', () => {

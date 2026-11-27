@@ -12,7 +12,17 @@ export const SITES = {
   naukri: { name: 'Naukri', kind: 'job' },
   linkedin: { name: 'LinkedIn', kind: 'job' },
   indeed: { name: 'Indeed', kind: 'job' },
+  foundit: { name: 'Foundit', kind: 'job' },
+  shine: { name: 'Shine', kind: 'job' },
+  timesjobs: { name: 'TimesJobs', kind: 'job' },
+  hirist: { name: 'Hirist', kind: 'job' },
+  cutshort: { name: 'Cutshort', kind: 'job' },
+  wellfound: { name: 'Wellfound', kind: 'job' },
+  internshala: { name: 'Internshala', kind: 'job' },
+  weworkremotely: { name: 'We Work Remotely', kind: 'job' },
   freelancer: { name: 'Freelancer', kind: 'freelance' },
+  guru: { name: 'Guru', kind: 'freelance' },
+  peopleperhour: { name: 'PeoplePerHour', kind: 'freelance' },
   other: { name: 'Other site', kind: 'job' },
 };
 const MAX_DESC = 4000;
@@ -81,11 +91,23 @@ const needProfile = () => {
 export function searchUrl({ site, query, location }) {
   const q = encodeURIComponent(str(query));
   const l = encodeURIComponent(str(location));
+  const city = !!location && !/remote/i.test(location);
   switch (site) {
     case 'naukri': return `https://www.naukri.com/${slug(query)}-jobs${location && !/remote/i.test(location) ? `-in-${slug(location)}` : ''}${/remote/i.test(location || '') ? '?wfhType=2' : ''}`;
     case 'linkedin': return `https://www.linkedin.com/jobs/search/?keywords=${q}${location ? `&location=${l}` : ''}&sortBy=DD`;
     case 'indeed': return `https://in.indeed.com/jobs?q=${q}${location ? `&l=${l}` : ''}&sort=date`;
     case 'freelancer': return `https://www.freelancer.com/search/projects?q=${q}`;
+    // Added in 0.6.0 (links checked against each site; remote searches leave the city out).
+    case 'foundit': return `https://www.foundit.in/srp/results?query=${q}${city ? `&locations=${l}` : ''}`;
+    case 'shine': return `https://www.shine.com/job-search/${slug(query)}-jobs${city ? `-in-${slug(location)}` : ''}`;
+    case 'timesjobs': return `https://www.timesjobs.com/job-search?searchType=personalizedSearch&from=submit&txtKeywords=${q}${city ? `&txtLocation=${l}` : ''}`;
+    case 'hirist': return `https://www.hirist.tech/search/${slug(query)}`;
+    case 'cutshort': return `https://cutshort.io/jobs/${slug(query)}-jobs${city ? `-in-${slug(location)}` : ''}`;
+    case 'wellfound': return city ? `https://wellfound.com/role/l/${slug(query)}/${slug(location)}` : `https://wellfound.com/role/r/${slug(query)}`;
+    case 'internshala': return `https://internshala.com/jobs/keywords-${slug(query)}/`;
+    case 'weworkremotely': return `https://weworkremotely.com/remote-jobs/search?term=${q}`;
+    case 'guru': return `https://www.guru.com/d/jobs/skill/${slug(query)}/`;
+    case 'peopleperhour': return `https://www.peopleperhour.com/freelance-jobs?keywords=${q}`;
     default: return null;
   }
 }

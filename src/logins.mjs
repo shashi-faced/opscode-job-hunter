@@ -12,8 +12,20 @@ export const LOGIN_URLS = {
   linkedin: 'https://www.linkedin.com/login',
   indeed: 'https://secure.indeed.com/auth',
   freelancer: 'https://www.freelancer.com/login',
+  foundit: 'https://www.foundit.in/rio/login',
+  shine: 'https://www.shine.com/myshine/login/',
+  timesjobs: 'https://www.timesjobs.com/login',
+  hirist: 'https://www.hirist.tech/login',
+  cutshort: 'https://cutshort.io/',
+  wellfound: 'https://wellfound.com/login',
+  internshala: 'https://internshala.com/login/user',
+  guru: 'https://www.guru.com/login.aspx',
+  peopleperhour: 'https://www.peopleperhour.com/site/login',
 };
-export const SITE_NAMES = { naukri: 'Naukri', linkedin: 'LinkedIn', indeed: 'Indeed', freelancer: 'Freelancer' };
+/** Sites whose results only show (or only make sense) when signed in: searches wait for the user's yes there.
+ *  On the others the listings are public: searching runs right away, and signing in is needed to apply. */
+export const SIGN_IN_TO_SEARCH = ['naukri', 'linkedin', 'indeed', 'freelancer'];
+export const SITE_NAMES = { naukri: 'Naukri', linkedin: 'LinkedIn', indeed: 'Indeed', freelancer: 'Freelancer', foundit: 'Foundit', shine: 'Shine', timesjobs: 'TimesJobs', hirist: 'Hirist', cutshort: 'Cutshort', wellfound: 'Wellfound', internshala: 'Internshala', weworkremotely: 'We Work Remotely', guru: 'Guru', peopleperhour: 'PeoplePerHour' };
 
 const load = () => readJson('logins', 'state', {});
 
@@ -40,3 +52,5 @@ export function loginMark(p, now = Date.now()) {
 
 /** Whether the user confirmed being signed in to `site` (sites without a sign-in, like e-mail, always pass). */
 export const signedIn = (site) => !LOGIN_URLS[site] || load()[site]?.signed_in === true;
+/** Whether a search on `site` must wait for the user to sign in (public listings do not). */
+export const searchNeedsSignIn = (site) => SIGN_IN_TO_SEARCH.includes(site) && !signedIn(site);

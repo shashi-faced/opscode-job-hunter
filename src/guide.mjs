@@ -18,6 +18,7 @@ export const JOB_FORMAT = `{
 export function browserTask(search) {
   return [
     `Open ${search.url} in the browser. READ ONLY: do not click Apply, Easy Apply, Submit a proposal, Message or Save, and do not change any setting or filter beyond what is needed to see the list.`,
+    'If the page does not show results for the search words, type them into the site\'s own search box (searching is fine; nothing else).',
     'If a sign-in, verification or CAPTCHA page appears, hand it to the user (they sign in themselves) and continue when they are done.',
     'From the results list (the first page, up to 20 jobs), return ONLY a JSON array, one object per job, in this format:',
     JOB_FORMAT,
@@ -36,12 +37,12 @@ You read job pages, keep the jobs, score them, show the best ones, and write cov
 - jobs_profile_set with the confirmed fields.
 
 ## 2. Saved searches
-- jobs_search_add {site, query, location} for each site the user wants (naukri, linkedin, indeed, freelancer; "other" with url). Suggest 1-3 queries from the roles and top skills.
+- jobs_search_add {site, query, location} for each site the user wants (job sites: naukri, linkedin, indeed, foundit, shine, timesjobs, hirist, cutshort, wellfound, internshala, weworkremotely; freelance: freelancer, guru, peopleperhour; "other" with url). Suggest 1-3 queries from the roles and top skills.
 
 ## 2b. Signing in (the user does it, once per site)
 - jobs_login_status shows each site of the saved searches, whether the user confirmed being signed in, and its login_url.
 - For each site not signed in: open_sign_in {url: login_url}, then ask_question "I opened <Site> in the browser window. Sign in there yourself (I never see your password). Are you signed in?" with "Yes, I'm signed in" / "Not yet, give me a minute" / "Skip <Site> for now". Record the answer with jobs_login_mark. Never ask for a password or code.
-- Searches, applications and inbox checks run only on signed-in sites.
+- Naukri, LinkedIn, Indeed and Freelancer are searched only after the user signs in. The other sites' listings are public: they are searched right away, and the user signs in there before applying (jobs_apply_task says so).
 
 ## 3. A search run
 For each saved search (or the one the user asked for), one at a time:

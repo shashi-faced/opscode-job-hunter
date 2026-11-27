@@ -8,7 +8,7 @@ import {
 import { guide, browserTask, applyTask, inboxTask, replyTask } from './guide.mjs';
 import { INBOX_URLS, messagesAdd, inbox, getThread, replyDraft, replyState, REPLY_STATES } from './messages.mjs';
 import { LIMITS } from './draft.mjs';
-import { LOGIN_URLS, SITE_NAMES, loginStatus, loginMark, signedIn } from './logins.mjs';
+import { LOGIN_URLS, SITE_NAMES, loginStatus, loginMark, signedIn, searchNeedsSignIn } from './logins.mjs';
 
 const S = { type: 'string' };
 const A = { type: 'array', items: S };
@@ -64,8 +64,9 @@ const RUN = {
   jobs_profile_get: () => { const r = profileGet(); return { text: r ? JSON.stringify(r, null, 2) : 'No profile yet. Read the CV with jobs_cv_read.', data: r }; },
   jobs_search_add: (p) => { const r = searchAdd(p); return { text: `${r.existed ? 'Updated' : 'Saved'} search ${r.search.id}: ${SITES[r.search.site].name} ${r.search.kind}, "${r.search.query}"${r.search.location ? ` in ${r.search.location}` : ''}\n${r.search.url}`, data: r.search }; },
   jobs_search_list: () => {
-    const l = searchList().map((s) => ({ ...s, signed_in: signedIn(s.site), browser_task: browserTask(s) }));
-    const out = [...new Set(l.filter((s) => !s.signed_in).map((s) => s.site))];
+    // needs_sign_in: the search waits for the user's yes (Naukri, LinkedIn, Indeed, Freelancer); public listings do not.
+    const l = searchList().map((s) => ({ ...s, signed_in: signedIn(s.site), needs_sign_in: searchNeedsSignIn(s.site), browser_task: browserTask(s) }));
+    const out = [...new Set(l.filter((s) => s.needs_sign_in).map((s) => s.site))];
     if (out.length) {
       const base = searchListText(l);
       return { text: `${base}\n⚠ Not signed in yet: ${out.map((x) => SITE_NAMES[x] || x).join(', ')}. Before searching those, open each with open_sign_in (login_url from jobs_login_status) and ask the user if they are signed in.`, data: l };

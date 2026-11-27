@@ -3,7 +3,7 @@
 An Opscode agent that finds jobs and freelance gigs that fit your CV:
 
 1. builds your profile from the CV (skills, years, roles, places, pay); you confirm it, and nothing is added that the CV does not say;
-2. keeps saved searches on Naukri, LinkedIn, Indeed and Freelancer;
+2. keeps saved searches on Naukri, LinkedIn, Indeed, Foundit, Shine, TimesJobs, Hirist, Cutshort, Wellfound, Internshala and We Work Remotely, plus Freelancer, Guru and PeoplePerHour;
 3. has the app's **Browser Agent** read the results in your own signed-in browser (read only);
 4. keeps each job once and scores it 0-100 against the profile, with the reasons (skills, role, place, pay, experience asked, words you avoid, age of the post);
 5. tracks each job: found → shortlisted / dismissed → applied → replied → interview → offer → won / lost.
