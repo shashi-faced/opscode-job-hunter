@@ -107,7 +107,10 @@ const RUN = {
     const prof = profileOf() || {};
     // Applying by e-mail: the app sends it through the user's Gmail (no browser).
     const email = j.apply_email ? { to: j.apply_email, subject: `Application: ${j.title}${prof.name ? ` — ${prof.name}` : ''}`, body: j.draft.text, attachment: prof.cv_path || null } : null;
-    return { text: applyTask(j, prof, auto), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company, email } };
+    // The user's choice for jobs applied to on the company's own website: one mode, or one per site.
+    const cs = typeof p.company_site === 'string' ? p.company_site : p.company_site && typeof p.company_site === 'object' ? p.company_site[j.site] : null;
+    const companySite = j.kind === 'freelance' ? null : cs === 'fill' ? 'fill' : 'leave';
+    return { text: applyTask(j, prof, auto, companySite || 'leave'), data: { job: j.id, submit: !!j.draft.submit, url: j.url, site: j.site, title: j.title, company: j.company, email, company_site: companySite } };
   },
   jobs_inbox: (p) => { const l = inbox(p); return { text: l.length ? l.map(threadLine).join('\n') : 'No conversations need a reply.', data: l }; },
   jobs_reply_draft: (p) => {

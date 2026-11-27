@@ -64,8 +64,11 @@ ${JOB_FORMAT}
  * On job sites the user's click in the app is the confirmation to submit THIS application; on
  * freelance sites a proposal costs paid credits, so the form is filled and the user sends it.
  */
-export function applyTask(job, profile, auto = null) {
+export function applyTask(job, profile, auto = null, companySite = 'leave') {
   const submit = !!job.draft?.submit;
+  // Job sites only: some jobs are applied to on the company's own website. The user chose per site in
+  // the app (Jobs tab → Company websites) whether those are left for later (the default) or filled in.
+  const company = job.kind === 'freelance' ? null : companySite === 'fill' ? 'fill' : 'leave';
   const facts = [
     profile?.name && `Name: ${profile.name}`,
     profile?.years != null && `Years of experience: ${profile.years}`,
@@ -83,7 +86,10 @@ export function applyTask(job, profile, auto = null) {
     `Job page: ${job.url}`,
     '',
     '1. Open the job page. If a sign-in, verification or CAPTCHA page appears, hand it to the user and continue when they are done.',
-    '2. Click Apply (or Easy Apply, Apply now, I\'m interested, Submit a proposal). If the site sends you to the company\'s own website, stop there.',
+    '2. Click Apply (or Easy Apply, Apply now, I\'m interested, Submit a proposal).',
+    company === 'leave' && '   Company website: if the button says "Apply on company site" (or company website, employer site, apply externally), or Apply takes you to another website, the user chose to leave these for now. Do not fill anything in there and do not create an account. End with RESULT: COMPANY_SITE and the address of the company\'s page if you can see it (the button\'s link, or the page it opened).',
+    company === 'fill' && '   Company website: if Apply takes you to the company\'s own website, carry on there and fill in its application form the same way (steps 3 to 6). If it asks you to create an account, sign in or confirm an e-mail, hand that page to the user (they do it themselves; never make up a password) and continue when they are done.',
+    company === null && '   If the site sends you to another website, stop there.',
     '3. Fill the form ONLY with the facts below and what the site already filled in from the user\'s account (leave those as they are).',
     '4. In the cover letter / message / proposal box, paste the text below EXACTLY, without changing a word. If there is no such box, skip it.',
     '5. If the form asks anything the facts do not answer (current or expected salary, notice period, work permit, rates, screening questions), do not guess and do not pick an answer: stop.',
@@ -95,6 +101,7 @@ export function applyTask(job, profile, auto = null) {
     '   RESULT: READY_FOR_YOU <what is left for the user to click>',
     '   RESULT: NEEDS_YOU <the questions or step the user must answer>',
     '   RESULT: FAILED <why>',
+    company === 'leave' && '   RESULT: COMPANY_SITE <the company page\'s address>   (only when Apply leads to the company\'s own website)',
     '',
     'Facts about the user:',
     ...facts.map((f) => `- ${f}`),
@@ -103,7 +110,7 @@ export function applyTask(job, profile, auto = null) {
     '---',
     job.draft?.text || '',
     '---',
-  ].join('\n');
+  ].filter((l) => l !== false && l !== null).join('\n');
 }
 
 /** The Browser Agent's read-only task for one site's inbox (built for the app). */

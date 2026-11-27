@@ -61,5 +61,5 @@ test('the setup offers all fourteen sites; the blocked ones are named and never 
   assert.deepEqual(opts, ['naukri', 'linkedin', 'indeed', ...NEW_JOB, 'freelancer', ...NEW_FREELANCE]);
   assert.ok(opts.every((s) => R.SITES[s]), 'every choice is a known site');
   assert.match(manifest.systemPrompt, /Upwork, Glassdoor, Instahyre, Workana, Truelancer and RemoteOK are not supported/);
-  assert.equal(manifest.version, '0.6.0');
+  assert.ok(manifest.version.localeCompare('0.6.0', undefined, { numeric: true }) >= 0, 'the sites came in 0.6.0');
 });

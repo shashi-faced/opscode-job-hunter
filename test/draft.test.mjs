@@ -105,3 +105,35 @@ test('the apply task: job sites submit only this one application; freelance site
   assert.doesNotMatch(u.text, /USER CONFIRMED/);
   assert.match(u.text, /do NOT click Send/);
 });
+
+test('company websites: left for now by default, filled in when the user chose that for the site', async () => {
+  const naukri = R.jobsList({ all: true }).find((j) => j.site === 'naukri');
+  const gig = R.jobsList({ all: true }).find((j) => j.site === 'freelancer');
+  R.jobsDraftState({ job: naukri.id, state: 'waiting' });
+  const leave = await runTool('jobs_apply_task', { job: naukri.id });
+  assert.equal(leave.data.company_site, 'leave', 'the default');
+  assert.match(leave.text, /Apply on company site[\s\S]*leave these for now[\s\S]*RESULT: COMPANY_SITE/);
+  assert.doesNotMatch(leave.text, /carry on there/);
+  // One mode per site (the app's setting), or one mode for this application.
+  const fill = await runTool('jobs_apply_task', { job: naukri.id, company_site: { naukri: 'fill', linkedin: 'leave' } });
+  assert.equal(fill.data.company_site, 'fill');
+  assert.match(fill.text, /company's own website, carry on there[\s\S]*never make up a password/);
+  assert.doesNotMatch(fill.text, /COMPANY_SITE/);
+  assert.equal((await runTool('jobs_apply_task', { job: naukri.id, company_site: { linkedin: 'fill' } })).data.company_site, 'leave', 'another site\'s choice does not apply');
+  assert.equal((await runTool('jobs_apply_task', { job: naukri.id, company_site: 'fill' })).data.company_site, 'fill');
+  // Freelance proposals never go to a company website.
+  const g = await runTool('jobs_apply_task', { job: gig.id, company_site: 'fill' });
+  assert.equal(g.data.company_site, null);
+  assert.doesNotMatch(g.text, /COMPANY_SITE|carry on there/);
+  // The app records a left one with the company's link; it is not applied and not in the default list.
+  const statusBefore = R.getJob(naukri.id).status;
+  const s = await runTool('jobs_draft_state', { job: naukri.id, state: 'company_site', note: 'Applies on the company site.', company_url: 'https://careers.acme.com/jobs/42' });
+  assert.equal(s.ok, true, s.text);
+  assert.equal(R.getJob(naukri.id).draft.company_url, 'https://careers.acme.com/jobs/42');
+  assert.equal(R.getJob(naukri.id).status, statusBefore, 'leaving it changes nothing about the job');
+  assert.ok(!R.jobsDrafts().some((j) => j.id === naukri.id), 'not among the ones waiting for the user');
+  assert.ok(R.jobsDrafts({ state: 'company_site' }).some((j) => j.id === naukri.id));
+  R.jobsDraftState({ job: naukri.id, state: 'company_site', company_url: 'javascript:alert(1)' });
+  assert.equal(R.getJob(naukri.id).draft.company_url, undefined, 'web links only');
+  R.jobsDraftState({ job: naukri.id, state: 'waiting' });
+});

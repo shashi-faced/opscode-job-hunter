@@ -283,8 +283,9 @@ export function jobsStatus() {
 // The agent writes a draft; only the app records what happens to it (the user's click, the browser's
 // result), with jobs_draft_state, which the agent does not have.
 
-/** What a draft can be: waiting for the user, being applied, done, or stopped with a reason. */
-export const DRAFT_STATES = ['waiting', 'applying', 'sent', 'ready_for_you', 'needs_you', 'failed', 'rejected'];
+/** What a draft can be: waiting for the user, being applied, done, or stopped with a reason.
+ *  company_site: Apply leads to the company's own website and the user chose to leave those for now. */
+export const DRAFT_STATES = ['waiting', 'applying', 'sent', 'ready_for_you', 'needs_you', 'failed', 'rejected', 'company_site'];
 /** Sites where the app submits after the user's OK. On freelance sites a proposal costs paid credits, so the user sends it. */
 export const SUBMIT_SITES = ['naukri', 'linkedin', 'indeed', 'other'];
 
@@ -329,6 +330,11 @@ export function jobsDraftState(p, now = Date.now()) {
   j.draft.state = p.state;
   j.draft.note = str(p.note, 1000);
   j.draft.updatedAt = new Date(now).toISOString();
+  if (p.state === 'company_site') {
+    // The company's own application page, when the browser saw it (a web link only).
+    const u = String(p.company_url || '').trim();
+    if (/^https?:\/\/[^\s]+$/i.test(u)) j.draft.company_url = u.slice(0, 500); else delete j.draft.company_url;
+  }
   if (p.state === 'sent') {
     j.draft.sentAt = j.draft.updatedAt;
     if (!['applied', 'replied', 'interview', 'offer', 'won'].includes(j.status)) {
